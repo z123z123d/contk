@@ -153,8 +153,6 @@ class LanguageGeneration(Dataloader):
 					"sentence_length": [5, 3], # length of sentences
 				}
 
-		Todo:
-				* fix the missing example
 		'''
 		if key not in self.key_name:
 			raise ValueError("No set named %s." % key)
