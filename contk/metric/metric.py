@@ -80,6 +80,50 @@ class PerlplexityMetric(MetricBase):
 				list(range(single_length-1)), resp[i][1:single_length]])
 			self.length_sum += single_length - 1
 
+	def forward_pad(self, data):
+		'''Processing a batch of data with padding in resp_length (resp_length[i] == 0).
+
+		Arguments:
+			data (dict): A dict at least contains the following keys.
+			data[data_key] (list or :class:`numpy.array`): Reference sentences.
+				Contains ``<go>`` and ``<eos>``. Size: `[batch_size, max_sentence_length]`
+			data[data_len_key] (list): Length of Reference sentences. Contains ``<go>`` and ``<eos>``.
+				Size: `[batch_size]`
+			data[gen_prob_key] (list or :class:`numpy.array`): Setence generations model outputs of
+				**log softmax** probability. Contains ``<eos>``, but without ``<go>``.
+				Size: `[batch_size, gen_sentence_length, vocab_size]`.
+
+		Warning:
+			``data[gen_prob_key]`` must be processed after log_softmax. That means,
+			``np.sum(np.exp(gen_prob), -1)`` equals ``np.ones((batch_size, gen_sentence_length))``
+		'''
+		resp = data[self.data_key]
+		resp_length = data[self.data_len_key]
+		gen_prob = data[self.gen_prob_key]
+		if resp.shape[0] != resp_length.shape[0]:
+			raise ValueError("Batch num is not matched.")
+		valid_index = [idx for idx, single_length in enumerate(resp_length) \
+			if single_length > 1]
+		# perform random check to assert the probability is valid
+		checkid = random.choice(valid_index)
+		checkrow = random.randint(0, resp_length[checkid]-2)
+		if not np.isclose(np.sum(np.exp(gen_prob[checkid][checkrow])), 1):
+			print("gen_prob[%d][%d] exp sum is equal to %f." % (checkid, checkrow, \
+				np.sum(np.exp(gen_prob[checkid][checkrow]))))
+			raise ValueError("data[gen_prob_key] must be processed after log_softmax.")
+
+		for i in valid_index:
+			single_length = resp_length[i]
+			# perform full check to assert the probability is valid
+			if self.full_check:
+				expsum = np.sum(np.exp(gen_prob[i][:single_length]), -1)
+				if not np.allclose(expsum, [1] * single_length):
+					raise ValueError("data[gen_prob_key] must be processed after log_softmax.")
+
+			self.word_loss += -np.sum(gen_prob[i][\
+				list(range(single_length-1)), resp[i][1:single_length]])
+			self.length_sum += single_length - 1
+
 	def close(self):
 		'''Return a dict which contains:
 
