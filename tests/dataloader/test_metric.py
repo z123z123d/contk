@@ -127,7 +127,57 @@ class FakeDataLoader:
 				data[i] = np.array(data[i])
 		return data
 
-
+	def get_multi_turn_data(self, reference_key, reference_len_key, gen_key, gen_prob_key):
+		# [batch, turn, length, vocab]
+		# self.vocab_list = ['<pad>', '<unk>', '<go>', '<eos>', 'what', 'how', 'here', 'do']
+		data = {}
+		data[reference_key] = [ \
+			[ \
+				[2, 3, 0, 0], \
+				[2, 4, 3, 0], \
+				[2, 5, 4, 3]
+				], \
+			[ \
+				[2, 5, 5, 5, 3, 0, 0, 0], \
+				[2, 1, 1, 5, 6, 5, 5, 3]
+				], \
+			[ \
+				[2, 4, 5, 4, 5, 4, 3], \
+				[2, 4, 4, 4, 5, 5, 3], \
+				[2, 4, 5, 6, 3, 0, 0]
+				] \
+			]
+		data[reference_len_key] = [[2, 3, 4], [5, 8], [7, 7, 5]]
+		data[gen_key] = [ \
+			[ \
+				[4, 3], \
+				[4, 3], \
+				[5, 5, 4, 3]
+				], \
+			[ \
+				[5, 5, 4, 3], \
+				[5, 5, 5, 6, 5, 3]
+				], \
+			[ \
+				[4, 4, 5, 5, 5, 3], \
+				[4, 4, 5, 5, 3], \
+				[4, 5, 6, 3]
+				] \
+			]
+		prob = []
+		for batch in data[reference_key]: # reference_key
+			batch_prob = []
+			for turn in batch:
+				sen_prob = []
+				for word in turn:
+					vocab_prob = []
+					for each in range(8):
+						vocab_prob.append(random())
+					sen_prob.append(np.log(vocab_prob / np.sum(vocab_prob)))
+				batch_prob.append(sen_prob)
+			prob.append(batch_prob)
+		data[gen_prob_key] = prob
+		return data
 
 class TestPerlplexityMetric():
 	def get_perplexity(self, input):
@@ -199,6 +249,16 @@ class TestPerlplexityMetric():
 		with pytest.raises(ValueError):
 			pm.forward(data)
 
+	def test_close6(self):
+		dataloader = FakeDataLoader()
+		data = dataloader.get_data('reference_key', 'reference_len_key', 'gen_prob_key',\
+								   'gen_key', 'post_key', 'resp_key', 'res_key', \
+								   True, False)
+		data['gen_prob_key'][3][0][0] += 0.1
+		pm = PerlplexityMetric(dataloader, 'reference_key', 'reference_len_key', 'gen_prob_key', full_check=True)
+		with pytest.raises(ValueError):
+			pm.forward(data)
+
 class TestMultiTurnPerplexityMetric:
 	def get_perplexity(self, input):
 		length_sum = 0
@@ -209,6 +269,7 @@ class TestMultiTurnPerplexityMetric:
 
 				length_sum += max_length - 1
 				for j in range(max_length - 1):
+					print (turn, i, j)
 					# word_loss += -(input['gen_prob_key'][i][j][ FakeDataLoader().vocab_to_index[input['reference_key'][i][j + 1]] ])
 					word_loss += -(input['gen_prob_key'][turn][i][j][ input['reference_key'][turn][i][j + 1] ])
 		return np.exp(word_loss / length_sum)
@@ -258,6 +319,15 @@ class TestMultiTurnPerplexityMetric:
 
 		pm = MultiTurnPerplexityMetric(dataloader, 'reference_key', 'reference_len_key', 'gen_prob_key', full_check=True)
 		pm.forward(data)
+		assert np.isclose(pm.close()['perplexity'], ans)
+
+	def test_close5(self):
+		dataloader = FakeDataLoader()
+		data = dataloader.get_multi_turn_data('reference_key', 'reference_len_key', 'gen_key', 'gen_prob_key')
+
+		pm = MultiTurnPerplexityMetric(dataloader, 'reference_key', 'reference_len_key', 'gen_prob_key', full_check = True)
+		pm.forward(data)
+		ans = self.get_perplexity(data)
 		assert np.isclose(pm.close()['perplexity'], ans)
 
 class TestBleuCorpusMetric:
@@ -407,11 +477,11 @@ class TestMultiTurnBleuCorpusMetric:
 	def test_close4(self):
 		dataloader = FakeDataLoader()
 
-		ref1 = ['<go>', 'what', 'how', 'here', 'do', 'what', 'here', '<eos>']
-		ref2 = ['<go>', 'how', 'here', 'what', 'do', 'how', 'here', '<eos>']
+		ref1 = ['<go>', 'what', 'how', 'here', 'do', '<eos>']
+		ref2 = ['<go>', 'how', 'here', 'what', 'do', '<eos>']
 		ref3 = ['<go>', 'here', 'here', 'here', 'here', 'here', 'here', '<eos>']
 		sen1 = ['what', 'how', 'here', 'do', 'what', 'here', '<eos>']
-		sen2 = ['how', 'here', 'what', 'do', 'how', 'here', '<eos>']
+		sen2 = ['how', 'here', 'what', 'do', '<eos>']
 		sen3 = ['here', 'here', 'here', 'here', 'here', 'here', '<eos>']
 
 		sen_to_idx = (lambda x: dataloader.vocab_to_index[x])
@@ -431,6 +501,83 @@ class TestMultiTurnBleuCorpusMetric:
 
 		assert ans > 0
 		assert ans == bcm.close()['bleu']
+
+	def test_close5(self):
+		dataloader = FakeDataLoader()
+		data = dataloader.get_multi_turn_data('reference_key', 'reference_len_key', 'res_key', 'gen_prob_key')
+
+		bc = MultiTurnBleuCorpusMetric(dataloader, 'reference_key', 'res_key')
+		bc.forward(data)
+		ans = self.get_bleu(dataloader, data)
+		assert np.isclose(bc.close()['bleu'], ans)
+		
+	def test_close6(self):
+		dataloader = FakeDataLoader()
+		data = {}
+		# data['reference_key', 'res_key']
+		data['reference_key'] = [ \
+			[ \
+				[2, 5, 3, 0, 0], \
+				[2, 5, 5, 5, 3] \
+				], \
+			[ \
+				[2, 6, 6, 7, 3, 0, 0], \
+				[2, 7, 6, 5, 6, 7, 3], \
+				[2, 5, 3, 0, 0, 0, 0]
+				]
+			]
+		data['res_key'] = [ \
+			[ \
+				[2, 5, 3], \
+				[2, 5, 5, 3] \
+				], \
+			[ \
+				[2, 6, 6, 7, 3], \
+				[2, 5, 7, 6, 3], \
+				[2, 5, 3]
+				]
+			]
+
+		bc = MultiTurnBleuCorpusMetric(dataloader, 'reference_key', 'res_key')
+		bc.forward(data)
+		ans = self.get_bleu(dataloader, data)
+		assert np.isclose(bc.close()['bleu'], ans)
+
+	def test_close7(self):
+		dataloader = FakeDataLoader()
+		data = {}
+		data['reference_key'] = [ \
+			[ \
+				[2, 3, 5, 0, 0], \
+				[2, 5, 5, 5, 3] \
+				], \
+			[ \
+				[2, 6, 6, 7, 3, 0, 0], \
+				[2, 7, 6, 5, 6, 7, 3], \
+				]
+			]
+		data['res_key'] = [ \
+			[ \
+				[2, 3], \
+				[2, 5, 5, 3] \
+				], \
+			[ \
+				[2, 6, 6, 7, 3], \
+				[2, 5, 7, 6, 3], \
+				[2, 5, 3]
+				]
+			]
+
+		bc = MultiTurnBleuCorpusMetric(dataloader, 'reference_key', 'res_key')
+		with pytest.raises(ValueError):
+			bc.forward(data)
+
+	def test_close8(self):
+		refs = [[[1,2]]]
+		hyps = [[1]]
+		with pytest.raises(Exception):
+			corpus_bleu(refs, hyps, smoothing_function=SmoothingFunction().method7)
+
 
 class TestLanguageGenerationRecorder():
 	def test_init(self):
@@ -534,6 +681,23 @@ class TestSingleTurnDialogRecorder():
 		sdr.forward(data)
 		assert sdr.close() == resdata
 
+	def test_close3(self):
+		data = {}
+		data['post'] = [ \
+			[2, 5, 7, 6, 3, 0], \
+			[2, 5, 5, 7, 6, 3] \
+			]
+		data['resp'] = [ \
+			[2, 6, 7, 5, 5, 3], \
+			[2, 6, 6, 6, 7, 3] \
+			]
+		data['gen'] = [ \
+			[2, 5, 3], \
+			]
+		sdr = SingleTurnDialogRecorder(FakeDataLoader(), 'post', 'resp', 'gen')
+		with pytest.raises(ValueError):
+			sdr.forward(data)
+
 class TestMultiTurnDialogRecorder:
 	def multi_turn_inx_to_sen(self, sen_lists):
 		dataloader = FakeDataLoader()
@@ -576,6 +740,17 @@ class TestMultiTurnDialogRecorder:
 		res['gen'] = self.multi_turn_inx_to_sen(data['res_key'])
 		dr.forward(data)
 		assert dr.close() == res
+
+	def test_close3(self):
+		dataloader = FakeDataLoader()
+		dr = MultiTurnDialogRecorder(dataloader, 'post_key', 'reference_key', 'res_key')
+
+		data = dataloader.get_data('reference_key', 'reference_len_key', 'gen_prob_key',\
+								   'gen_key', 'post_key', 'resp_key', 'res_key', \
+								   True, False, True)
+		data['reference_key'] = np.delete(data['reference_key'], 1, 0)
+		with pytest.raises(ValueError):
+			dr.forward(data)
 
 class TestMetricChain():
 	def test_init(self):
