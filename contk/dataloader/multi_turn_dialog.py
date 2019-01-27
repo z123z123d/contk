@@ -60,8 +60,8 @@ class MultiTurnDialog(BasicLanguageGeneration):
 				* sent(:class:`numpy.array`): A 3-d padding array containing id of words.
 					Only provide valid words. `unk_id` will be used if a word is not valid.
 					Size: `[batch_size, max(turn_length[i]), max(sent_length)]`
-				* sent_allwords(:class:`numpy.array`): A 3-d padding array containing id of words.
-					Provide both valid and invalid words.
+				* sent_allvocabs(:class:`numpy.array`): A 3-d padding array containing id of words.
+					Provide both valid and invalid vocabs.
 					Size: `[batch_size, max(turn_length[i]), max(sent_length)]`
 
 			See the example belows.
@@ -87,7 +87,7 @@ class MultiTurnDialog(BasicLanguageGeneration):
 			for j, sent in enumerate(self.data[key]['session'][index_i]):
 				res_sent[i, j, :len(sent)] = sent
 
-		res["sent_allwords"] = res_sent.copy()
+		res["sent_allvocabs"] = res_sent.copy()
 		res_sent[res_sent >= self.valid_vocab_len] = self.unk_id
 		return res
 
@@ -122,9 +122,9 @@ class MultiTurnDialog(BasicLanguageGeneration):
 
 		Arguments:
 			sen (list): a 2-d list of str, representing each token of the session.
-			invalid_vocab (bool): whether to provide invalid words.
-					If ``False``, invalid words will be trasfered to `unk_id`.
-					If ``True``, invalid words will using their own id.
+			invalid_vocab (bool): whether to provide invalid vocabs.
+					If ``False``, invalid vocabs will be trasfered to `unk_id`.
+					If ``True``, invalid vocabs will using their own id.
 					Default: False
 
 		Examples:
@@ -202,7 +202,7 @@ class UbuntuCorpus(MultiTurnDialog):
 			to first `max_turn_length` sentences. Default: 20.
 		invalid_vocab_times (int):  A cut-off threshold of invalid tokens. All tokens appear
 			not less than `invalid_vocab_times` in the **whole dataset** (except valid words) will be
-			marked as invalid words. Otherwise, they are unknown words, both in training or
+			marked as invalid vocabs. Otherwise, they are unknown words, both in training or
 			testing stages. Default: 0 (No unknown words).
 
 	Refer to :class:`.MultiTurnDialog` for attributes and methods.

@@ -17,74 +17,123 @@ class PerlplexityMetric(MetricBase):
 	'''Metric for calcualting perplexity.
 
 	Arguments:
-		reference_key (str): Reference sentences are passed to :func:`forward` by ``data[reference_key]``.
-			Default: ``resp``.
+		reference_allvocabs_key (str): Reference sentences with all vocabs
+			are passed to :func:`forward` by ``data[reference_allvocabs_key]``.
+			Default: ``resp_allvocabs``.
 		reference_len_key (str): Length of reference sentences are passed to :func:`forward`
 			by ``data[reference_len_key]``. Default: ``resp_length``.
-		gen_prob_key (str): Sentence generations model outputs of **log softmax** probability
-			are passed to :func:`forward` by ``data[gen_prob_key]``. Default: ``gen_prob``.
+		gen_log_prob_key (str): Sentence generations model outputs of **log softmax** probability
+			are passed to :func:`forward` by ``data[gen_log_prob_key]``. Default: ``gen_log_prob``.
+		invalid_vocab (bool): whether gen_log_prob contains invalid vocab. Default: False
+		full_check (bool): whether perform full checks on `gen_log_prob` to make sure the sum
+			of probability is 1. Otherwise, a random check will be performed for efficiency.
+			Default: False
 	'''
-	def __init__(self, dataloader, reference_key="resp", \
+	def __init__(self, dataloader, \
+					   reference_allvocabs_key="resp_allvocabs", \
 					   reference_len_key="resp_length", \
-					   gen_prob_key="gen_prob", \
+					   gen_log_prob_key="gen_log_prob", \
+					   invalid_vocab=False, \
 					   full_check=False \
 			  ):
 		super().__init__()
 		self.dataloader = dataloader
-		self.reference_key = reference_key
+		self.reference_allvocabs_key = reference_allvocabs_key
 		self.reference_len_key = reference_len_key
-		self.gen_prob_key = gen_prob_key
+		self.gen_log_prob_key = gen_log_prob_key
 		self.word_loss = 0
 		self.length_sum = 0
+		self.invalid_vocab = invalid_vocab
 		self.full_check = full_check
 
 	def forward(self, data):
-		'''Processing a batch of data.
+		'''Processing a batch of data. Smoothing will be performed for invalid vocabs.
+		Unknowns vocabs will be ignored.
+
+		TODO:
+			Find a place to explain valid vocabs, invalid vocabs, and unknown vocabs.
 
 		Arguments:
 			data (dict): A dict at least contains the following keys.
-			data[reference_key] (list or :class:`numpy.array`): Reference sentences.
-				Contains start token (eg: ``<go>``) and end token (eg: ``<eos>``).
+			data[reference_allvocabs_key] (list or :class:`numpy.array`): Reference sentences with all vocabs
+				with all vocabs. Contains start token (eg: ``<go>``) and end token (eg: ``<eos>``).
 				Size: `[batch_size, max_sentence_length]`
 			data[reference_len_key] (list): Length of Reference sentences. Contains start token (eg:``<go>``)
 				and end token (eg:``<eos>``). Size: `[batch_size]`
-			data[gen_prob_key] (list or :class:`numpy.array`): Setence generations model outputs of
+			data[gen_log_prob_key] (list or :class:`numpy.array`): Setence generations model outputs of
 				**log softmax** probability. Contains end token (eg:``<eos>``), but without start token
 				(eg: ``<go>``).	The 2nd dimension can be jagged.
-				Size: `[batch_size, gen_sentence_length, vocab_size]`.
+				Size: `[batch_size, gen_sentence_length, vocab_size]` for ``invalid_vocab = False``.
+				`[batch_size, gen_sentence_length, all_vocab_size]` for ``invalid_vocab = True``.
 
 		Warning:
-			``data[gen_prob_key]`` must be processed after log_softmax. That means,
-			``np.sum(np.exp(gen_prob), -1)`` equals ``np.ones((batch_size, gen_sentence_length))``
+			``data[gen_log_prob_key]`` must be processed after log_softmax. That means,
+			``np.sum(np.exp(gen_log_prob), -1)`` equals ``np.ones((batch_size, gen_sentence_length))``
 		'''
-		resp = data[self.reference_key]
+		resp_allwords = data[self.reference_allvocabs_key]
 		resp_length = data[self.reference_len_key]
-		gen_prob = data[self.gen_prob_key]
-		if len(resp) != len(resp_length) or len(resp) != len(gen_prob):
+		gen_log_prob = data[self.gen_log_prob_key]
+		if len(resp_allwords) != len(resp_length) or len(resp_allwords) != len(gen_log_prob):
 			raise ValueError("Batch num is not matched.")
 
 		# perform random check to assert the probability is valid
 		checkid = random.randint(0, len(resp_length)-1)
+		if resp_length[checkid]-2 > 0:
+			raise ValueError("resp_length must no less than 2, because <go> and <eos> are always included.")
 		checkrow = random.randint(0, resp_length[checkid]-2)
-		if not np.isclose(np.sum(np.exp(gen_prob[checkid][checkrow])), 1):
-			print("gen_prob[%d][%d] exp sum is equal to %f." % (checkid, checkrow, \
-				np.sum(np.exp(gen_prob[checkid][checkrow]))))
-			raise ValueError("data[gen_prob_key] must be processed after log_softmax.")
+		if not np.isclose(np.sum(np.exp(gen_log_prob[checkid][checkrow])), 1):
+			print("gen_log_prob[%d][%d] exp sum is equal to %f." % (checkid, checkrow, \
+				np.sum(np.exp(gen_log_prob[checkid][checkrow]))))
+			raise ValueError("data[gen_log_prob_key] must be processed after log_softmax.")
+
+		if not isinstance(resp_allwords, np.ndarray):
+			resp_allwords = np.array(resp_allwords)
+		if not isinstance(gen_log_prob, np.ndarray):
+			gen_log_prob = np.array(gen_log_prob)
+
+		invalid_vocab_num = self.dataloader.all_vocab_size - self.dataloader.vocab_size
+		#resp = resp_allwords.copy()
+		#resp[resp >= self.dataloader.vocab_size] = self.dataloader.unk_id
 
 		for i, single_length in enumerate(resp_length):
 			# perform full check to assert the probability is valid
 			if self.full_check:
-				expsum = np.sum(np.exp(gen_prob[i][:single_length]), -1)
+				expsum = np.sum(np.exp(gen_log_prob[i][:single_length]), -1)
 				if not np.allclose(expsum, [1] * single_length):
-					raise ValueError("data[gen_prob_key] must be processed after log_softmax.")
+					raise ValueError("data[gen_log_prob_key] must be processed after log_softmax.")
 
-			if not isinstance(resp, np.ndarray):
-				resp = np.array(resp)
-			if not isinstance(gen_prob, np.ndarray):
-				gen_prob = np.array(gen_prob)
-			self.word_loss += -np.sum(gen_prob[i][\
-				list(range(single_length-1)), resp[i][1:single_length]])
-			self.length_sum += single_length - 1
+			resp_now = resp_allwords[i][1:single_length]
+
+			if self.invalid_vocab:
+				if resp_now.shape[1] != self.dataloader.vocab_size:
+					raise ValueError("The third dimension gen_log_prob_key should be equals to vocab_size when \
+						invalid_vocab = False, \
+						but %d != %d" % (resp_now.shape[1], self.dataloader.vocab_size))
+			else:
+				if resp_now.shape[1] != self.dataloader.all_vocab_size:
+					raise ValueError("The third dimension gen_log_prob_key should be equals to all_vocab_size \
+						when invalid_vocab = True, \
+						but %d != %d" % (resp_now.shape[1], self.dataloader.vocab_size))
+
+			# calc normal vocab
+			normal_idx = np.where(resp_now != self.dataloader.unk_id and \
+									resp_now < self.dataloader.vocab_size)
+			self.word_loss += -np.sum(gen_log_prob[i][normal_idx, resp_now[normal_idx]])
+			self.length_sum += len(normal_idx)
+
+			# calc invalid vocab
+			invalid_idx = np.where(resp_now >= self.dataloader.vocab_size)
+			invalid_log_prob = gen_log_prob[i][\
+									invalid_idx, [self.dataloader.unk_id] * len(invalid_idx) \
+								] - np.log(invalid_vocab_num)
+			if self.invalid_vocab:
+				extra_invalid_log_prob = gen_log_prob[i][invalid_idx, resp_now[invalid_idx]]
+				self.word_loss += np.sum(np.log( \
+						np.exp(invalid_log_prob) + np.exp(extra_invalid_log_prob) \
+					))
+			else:
+				self.word_loss += np.sum(invalid_log_prob)
+			self.length_sum += len(invalid_idx)
 
 	def close(self):
 		'''Return a dict which contains:
@@ -97,57 +146,69 @@ class MultiTurnPerplexityMetric(MetricBase):
 	'''Metric for calcualting multi-turn perplexity.
 
 	Arguments:
-		reference_key (str): Reference sentences are passed to :func:`forward` by ``data[reference_key]``.
-			Default: ``sent``.
+		reference_allvocabs_key (str): Reference sentences with all vocabs
+			are passed to :func:`forward` by ``data[reference_allvocabs_key]``.
+			Default: ``sent_allvocabs``.
 		reference_len_key (str): Length of reference sentences are passed to :func:`forward`
 			by ``data[reference_len_key]``. Default: ``sent_length``.
-		gen_prob_key (str): Sentence generations model outputs of **log softmax** probability
-			are passed to :func:`forward` by ``data[gen_prob_key]``. Default: ``gen_prob``.
+		gen_log_prob_key (str): Sentence generations model outputs of **log softmax** probability
+			are passed to :func:`forward` by ``data[gen_log_prob_key]``. Default: ``gen_log_prob``.
+		invalid_vocab (bool): whether gen_log_prob contains invalid vocab. Default: False
+		full_check (bool): whether perform full checks on `gen_log_prob` to make sure the sum
+			of probability is 1. Otherwise, a random check will be performed for efficiency.
+			Default: False
 	'''
-	def __init__(self, dataloader, reference_key="sent", \
+	def __init__(self, dataloader, reference_allvocabs_key="sent_allvocabs", \
 					   reference_len_key="sent_length", \
-					   gen_prob_key="gen_prob", \
+					   gen_log_prob_key="gen_log_prob", \
+					   invalid_vocab=False, \
 					   full_check=False \
 			  ):
 		super().__init__()
 		self.dataloader = dataloader
-		self.reference_key = reference_key
+		self.reference_allvocabs_key = reference_allvocabs_key
 		self.reference_len_key = reference_len_key
-		self.gen_prob_key = gen_prob_key
-		self.sub_metric = PerlplexityMetric(dataloader, reference_key="sent", \
-				reference_len_key="sent_length", gen_prob_key="gen_prob", full_check=full_check)
+		self.gen_log_prob_key = gen_log_prob_key
+		self.invalid_vocab = invalid_vocab
+		self.sub_metric = PerlplexityMetric(dataloader, \
+				reference_allvocabs_key="sent_allvocabs", \
+				reference_len_key="sent_length", \
+				gen_log_prob_key="gen_log_prob", \
+				invalid_vocab=invalid_vocab, \
+				full_check=full_check)
 
 	def forward(self, data):
 		'''Processing a batch of data.
 
 		Arguments:
 			data (dict): A dict at least contains the following keys.
-			data[reference_key] (list or :class:`numpy.array`): Reference sentences.
+			data[reference_allvocabs_key] (list or :class:`numpy.array`): Reference sentences
+				with all vocabs.
 				Contains start token (eg: ``<go>``) and end token (eg: ``<eos>``).
 				Size: `[batch_size, max_turn_length, max_sentence_length]`
 			data[reference_len_key] (list of list): Length of Reference sentences. Contains
 				start token (eg:``<go>``) and end token (eg:``<eos>``). It must NOT be padded,
 				which means the inner lists may have different length.
 				Length of outer list: `batch_size`
-			data[gen_prob_key] (list or :class:`numpy.array`): Setence generations model outputs of
+			data[gen_log_prob_key] (list or :class:`numpy.array`): Setence generations model outputs of
 				**log softmax** probability. Contains end token (eg:``<eos>``), but without start token
 				(eg: ``<go>``).	The 2nd / 3rd dimension can be jagged.
 				Size: `[batch_size, max_turn_length, gen_sentence_length, vocab_size]`.
 
 		Warning:
-			``data[gen_prob_key]`` must be processed after log_softmax. That means,
-			``np.sum(np.exp(gen_prob), -1)`` equals ``np.ones((batch_size, gen_sentence_length))``
+			``data[gen_log_prob_key]`` must be processed after log_softmax. That means,
+			``np.sum(np.exp(gen_log_prob), -1)`` equals ``np.ones((batch_size, gen_sentence_length))``
 		'''
-		reference = data[self.reference_key]
+		reference_allvocabs = data[self.reference_allvocabs_key]
 		length = data[self.reference_len_key]
-		gen_prob = data[self.gen_prob_key]
-		if len(length) != len(reference) or len(length) != len(gen_prob):
+		gen_log_prob = data[self.gen_log_prob_key]
+		if len(length) != len(reference_allvocabs) or len(length) != len(gen_log_prob):
 			raise ValueError("Batch num is not matched.")
 
 		for i, sent_length in enumerate(length):
-			self.sub_metric.forward({"sent": reference[i], \
+			self.sub_metric.forward({"sent_allvocabs": reference_allvocabs[i], \
 					"sent_length": sent_length, \
-					"gen_prob": gen_prob[i]})
+					"gen_log_prob": gen_log_prob[i]})
 
 	def close(self):
 		'''Return a dict which contains:
@@ -160,15 +221,16 @@ class BleuCorpusMetric(MetricBase):
 	'''Metric for calcualting BLEU.
 
 	Arguments:
-		reference_key (str): Reference sentences are passed to :func:.forward by ``data[reference_key]``.
+		reference_allvocabs_key (str): Reference sentences with all vocabs
+			are passed to :func:.forward by ``data[reference_allvocabs_key]``.
 			Default: ``resp``.
 		gen_key (str): Sentences generated by model are passed to :func:.forward by
-			``data[gen_prob_key]``. Default: ``gen``.
+			``data[gen_key]``. Default: ``gen``.
 	'''
-	def __init__(self, dataloader, reference_key="resp", gen_key="gen"):
+	def __init__(self, dataloader, reference_allvocabs_key="resp_allvocabs", gen_key="gen"):
 		super().__init__()
 		self.dataloader = dataloader
-		self.reference_key = reference_key
+		self.reference_allvocabs_key = reference_allvocabs_key
 		self.gen_key = gen_key
 		self.refs = []
 		self.hyps = []
@@ -178,7 +240,8 @@ class BleuCorpusMetric(MetricBase):
 
 		Arguments:
 			data (dict): A dict at least contains the following keys.
-			data[reference_key] (list or :class:`numpy.array` of `int`): Reference sentences.
+			data[reference_allvocabs_key] (list or :class:`numpy.array` of `int`):
+				reference_allvocabs sentences.
 				Contains start token (eg: ``<go>``) and end token (eg: ``<eos>``).
 				Size: `[batch_size, max_sentence_length]`
 			data[gen_key] (list or :class:`numpy.array` of `int`): Setences generated by model.
@@ -186,7 +249,7 @@ class BleuCorpusMetric(MetricBase):
 				Size: `[batch_size, gen_sentence_length]`.
 		'''
 		gen = data[self.gen_key]
-		resp = data[self.reference_key]
+		resp = data[self.reference_allvocabs_key]
 		if len(resp) != len(gen):
 			raise ValueError("Batch num is not matched.")
 
@@ -205,19 +268,20 @@ class MultiTurnBleuCorpusMetric(MetricBase):
 	'''Metric for calcualting multi-turn BLEU.
 
 	Arguments:
-		reference_key (str): Reference sentences are passed to :func:`forward` by ``data[reference_key]``.
+		reference_allvocabs_key (str): reference sentences with all vocabs are passed to
+			:func:`forward` by ``data[reference_allvocabs_key]``.
 			Default: ``sent``.
-		reference_len_key (str): Length of reference sentences are passed to :func:`forward`
-			by ``data[reference_len_key]``. Default: ``sent_length``.
+		reference_allvocabs_len_key (str): Length of reference sentences are passed to :func:`forward`
+			by ``data[reference_allvocabs_len_key]``. Default: ``sent_length``.
 		gen_key (str):Sentences generated by model are passed to :func:.forward by
-			``data[gen_prob_key]``. Default: ``gen``.
+			``data[gen_key]``. Default: ``gen``.
 	'''
-	def __init__(self, dataloader, reference_key="sent", \
+	def __init__(self, dataloader, reference_allvocabs_key="sent", \
 					   gen_key="gen" \
 			  ):
 		super().__init__()
 		self.dataloader = dataloader
-		self.reference_key = reference_key
+		self.reference_allvocabs_key = reference_allvocabs_key
 		self.gen_key = gen_key
 		self.refs = []
 		self.hyps = []
@@ -227,21 +291,22 @@ class MultiTurnBleuCorpusMetric(MetricBase):
 
 		Arguments:
 			data (dict): A dict at least contains the following keys.
-			data[reference_key] (list or :class:`numpy.array`): Reference sentences.
+			data[reference_allvocabs_key] (list or :class:`numpy.array`):
+				Reference sentences with all vocabs.
 				Contains start token (eg: ``<go>``) and end token (eg: ``<eos>``).
 				Size: `[batch_size, max_turn_length, max_sentence_length]`
-			data[gen_prob_key] (list or :class:`numpy.array`): 3-d array of int.
+			data[gen_key] (list or :class:`numpy.array`): 3-d array of int.
 				Setences generated by model.
 				Contains end token (eg: ``<eos>``), but without start token (eg: ``<go>``).
 				The 2nd / 3rd dimension can be jagged.
 				Size: `[batch_size, max_turn_length, gen_sentence_length]`.
 		'''
-		reference = data[self.reference_key]
+		reference_allvocabs = data[self.reference_allvocabs_key]
 		gen = data[self.gen_key]
-		if len(gen) != len(reference):
+		if len(gen) != len(reference_allvocabs):
 			raise ValueError("Batch num is not matched.")
 
-		for gen_session, ref_session in zip(gen, reference):
+		for gen_session, ref_session in zip(gen, reference_allvocabs):
 			gen_processed = self.dataloader.multi_turn_trim_index(gen_session)
 			ref_processed = self.dataloader.multi_turn_trim_index(ref_session)
 			if len(gen_processed) != len(ref_processed):
@@ -262,18 +327,21 @@ class SingleTurnDialogRecorder(MetricBase):
 
 	Arguments:
 		dataloader (DataLoader): A dataloader for translating index to sentences.
-		post_key (str): Dialog post are passed to :func:`forward` by ``data[reference_key]``.
+		post_allvocabs_key (str): Dialog post are passed to :func:`forward`
+			by ``data[post_allvocabs_key]``.
 			Default: ``post``.
-		resp_key (str): Dialog responses are passed to :func:`forward` by ``data[reference_key]``.
+		resp_allvocabs_key (str): Dialog responses are passed to :func:`forward`
+			by ``data[resp_allvocabs_key]``.
 			Default: ``resp``.
 		gen_key (str): Sentence generated by model are passed to :func:`forward` by
 			``data[gen_key]``. Default: ``gen``.
 	'''
-	def __init__(self, dataloader, post_key="post", resp_key="resp", gen_key="gen"):
+	def __init__(self, dataloader, post_allvocabs_key="post_allvocabs", \
+			resp_allvocabs_key="resp_allvocabs", gen_key="gen"):
 		super().__init__()
 		self.dataloader = dataloader
-		self.post_key = post_key
-		self.resp_key = resp_key
+		self.post_allvocabs_key = post_allvocabs_key
+		self.resp_allvocabs_key = resp_allvocabs_key
 		self.gen_key = gen_key
 		self.post_list = []
 		self.resp_list = []
@@ -284,24 +352,26 @@ class SingleTurnDialogRecorder(MetricBase):
 
 		Arguments:
 			data (dict): A dict at least contains the following keys.
-			data[post_key] (list or :class:`numpy.array` of `int`): Dialog post.
+			data[post_allvocabs_key] (list or :class:`numpy.array` of `int`):
+				Dialog posts with all vocabs.
 				Contains start token (eg: ``<go>``) and end token (eg: ``<eos>``).
 				Size: `[batch_size, max_sentence_length]`
-			data[resp_key] (list or :class:`numpy.array` of `int`): Dialog responses.
+			data[resp_allvocabs_key] (list or :class:`numpy.array` of `int`):
+				Dialog responses with all vocabs.
 				Contains start token (eg: ``<go>``) and end token (eg: ``<eos>``).
 				Size: `[batch_size, max_sentence_length]`
 			data[gen_key] (list or :class:`numpy.array` of `int`): Setences generated by model.
 				Contains end token (eg: ``<eos>``)`, but without start token (eg: ``<go>``).
 				Size: `[batch_size, gen_sentence_length]`.
 		'''
-		post = data[self.post_key]
-		resp = data[self.resp_key]
+		post_allvocabs = data[self.post_allvocabs_key]
+		resp_allvocabs = data[self.resp_allvocabs_key]
 		gen = data[self.gen_key]
-		if len(post) != len(resp) or len(resp) != len(gen):
+		if len(post_allvocabs) != len(resp_allvocabs) or len(resp_allvocabs) != len(gen):
 			raise ValueError("Batch num is not matched.")
-		for i, post_sen in enumerate(post):
+		for i, post_sen in enumerate(post_allvocabs):
 			self.post_list.append(self.dataloader.index_to_sen(post_sen[1:]))
-			self.resp_list.append(self.dataloader.index_to_sen(resp[i][1:]))
+			self.resp_list.append(self.dataloader.index_to_sen(resp_allvocabs[i][1:]))
 			self.gen_list.append(self.dataloader.index_to_sen(gen[i]))
 
 	def close(self):
@@ -320,16 +390,18 @@ class MultiTurnDialogRecorder(MetricBase):
 		dataloader (DataLoader): A dataloader for translating index to sentences.
 		context_key (str): Dialog context are passed to :func:`forward` by ``data[context_key]``.
 			Default: ``post``.
-		reference_key (str): Dialog reference are passed to :func:`forward` by ``data[reference_key]``.
+		reference_allvocabs_key (str): Dialog references with all vocabs
+			are passed to :func:`forward` by ``data[reference_allvocabs_key]``.
 			Default: ``resp``.
 		gen_key (str): Sentences generated by model are passed to :func:`forward` by
 			``data[gen_key]``. Default: ``gen``.
 	'''
-	def __init__(self, dataloader, context_key="content", reference_key="reference", gen_key="gen"):
+	def __init__(self, dataloader, context_key="content", \
+			reference_allvocabs_key="reference", gen_key="gen"):
 		super().__init__()
 		self.dataloader = dataloader
 		self.context_key = context_key
-		self.reference_key = reference_key
+		self.reference_allvocabs_key = reference_allvocabs_key
 		self.gen_key = gen_key
 		self.context_list = []
 		self.reference_list = []
@@ -344,8 +416,8 @@ class MultiTurnDialogRecorder(MetricBase):
 				A 3-d padded array containing id of words.
 				Contains start token (eg: ``<go>``) and end token (eg: ``<eos>``).
 				Size: `[batch_size, _turn_length, max_sentence_length]`
-			data[reference_key] (list or :class:`numpy.array` of `int`): Dialog responses.
-				A 3-d padded array containing id of words.
+			data[reference_allvocabs_key] (list or :class:`numpy.array` of `int`):
+				Dialog responses with all vocabs. A 3-d padded array containing id of words.
 				Contains start token (eg: ``<go>``) and end token (eg: ``<eos>``).
 				Size: `[batch_size, max_turn_length, max_sentence_length]`
 			data[gen_key] (list or :class:`numpy.array` of `int`): Setences generated by model.
@@ -354,19 +426,20 @@ class MultiTurnDialogRecorder(MetricBase):
 				Size: `[batch_size, max_turn_length, gen_sentence_length]`.
 		'''
 		context = data[self.context_key]
-		reference = data[self.reference_key]
+		reference_allvocabs = data[self.reference_allvocabs_key]
 		gen = data[self.gen_key]
-		if len(context) != len(reference) or len(context) != len(gen):
+		if len(context) != len(reference_allvocabs) or len(context) != len(gen):
 			raise ValueError("Batch num is not matched.")
 		if not isinstance(context, np.ndarray):
 			context = np.array(context)
-		if not isinstance(reference, np.ndarray):
-			reference = np.array(reference)
+		if not isinstance(reference_allvocabs, np.ndarray):
+			reference_allvocabs = np.array(reference_allvocabs)
 		if not isinstance(gen, np.ndarray):
 			gen = np.array(gen)
 		for i, context_sen in enumerate(context):
 			self.context_list.append(self.dataloader.multi_turn_index_to_sen(context_sen[ :, 1:]))
-			self.reference_list.append(self.dataloader.multi_turn_index_to_sen(reference[i, :, 1:]))
+			self.reference_list.append(\
+				self.dataloader.multi_turn_index_to_sen(reference_allvocabs[i, :, 1:]))
 			self.gen_list.append(self.dataloader.multi_turn_index_to_sen(gen[i, :]))
 
 	def close(self):

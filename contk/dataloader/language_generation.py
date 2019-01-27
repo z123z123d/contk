@@ -45,7 +45,7 @@ class LanguageGeneration(BasicLanguageGeneration):
 				* sentence(:class:`numpy.array`): A 2-d padding array containing id of words.
 				  Only provide valid words. `unk_id` will be used if a word is not valid.
 				  Size: `[batch_size, max(sent_length)]`
-				* sentence_allwords(:class:`numpy.array`): A 2-d padding array containing id of words.
+				* sentence_allvocabs(:class:`numpy.array`): A 2-d padding array containing id of words.
 				  Provide both valid and invalid words.
 				  Size: `[batch_size, max(sent_length)]`
 
@@ -77,7 +77,7 @@ class LanguageGeneration(BasicLanguageGeneration):
 			sentence = self.data[key]['sen'][j]
 			res["sentence"][i, :len(sentence)] = sentence
 
-		res["sentence_allwords"] = res_sent.copy()
+		res["sentence_allvocabs"] = res_sent.copy()
 		res_sent[res_sent >= self.valid_vocab_len] = self.unk_id
 		return res
 

@@ -85,7 +85,7 @@ class TestLanguageGeneration():
 			length = len(dl.data[key]['sen'])
 			for i in range(length):
 				batch = dl.get_batch(key, [i])
-				assert dl.unk_id not in batch["sentence_allwords"]
+				assert dl.unk_id not in batch["sentence_allvocabs"]
 				batch = dl.get_batch(key, [i])
 				if dl.unk_id in batch["sentence"]:
 					flag = True

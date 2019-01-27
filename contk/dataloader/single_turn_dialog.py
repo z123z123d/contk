@@ -46,16 +46,16 @@ class SingleTurnDialog(BasicLanguageGeneration):
 			* post (:class:`numpy.array`): A 2-d padding array containing id of words in posts.
 			  Only provide valid words. `unk_id` will be used if a word is not valid.
 			  Size: `[batch_size, max(sent_length)]`
-			* post_allwords (:class:`numpy.array`): A 2-d padding array containing id of words in posts.
-			  Provide both valid and invalid words.
+			* post_allvlcabs (:class:`numpy.array`): A 2-d padding array containing id of words in posts.
+			  Provide both valid and invalid vocabs.
 			  Size: `[batch_size, max(sent_length)]`
 			* resp_length (list): A 1-d list, the length of response in each batch.
 			  Size: `[batch_size]`
 			* resp (:class:`numpy.array`): A 2-d padding array containing id of words in responses.
-			  Only provide valid words. `unk_id` will be used if a word is not valid.
+			  Only provide valid vocabs. `unk_id` will be used if a word is not valid.
 			  Size: `[batch_size, max(sent_length)]`
-			* resp_allwords (:class:`numpy.array`): A 2-d padding array containing id of words in responses.
-			  Provide both valid and invalid words.
+			* resp_allvocabs (:class:`numpy.array`): A 2-d padding array containing id of words in responses.
+			  Provide both valid and invalid vocabs.
 			  Size: `[batch_size, max(sent_length)]`
 
 		Examples:
@@ -93,8 +93,8 @@ class SingleTurnDialog(BasicLanguageGeneration):
 			res_post[i, :len(post)] = post
 			res_resp[i, :len(resp)] = resp
 
-		res["post_allwords"] = res_post.copy()
-		res["resp_allwords"] = res_resp.copy()
+		res["post_allvocabs"] = res_post.copy()
+		res["resp_allvocabs"] = res_resp.copy()
 		res_post[res_post >= self.valid_vocab_len] = self.unk_id
 		res_resp[res_resp >= self.valid_vocab_len] = self.unk_id
 		return res
@@ -139,7 +139,7 @@ class OpenSubtitles(SingleTurnDialog):
 			to first `max_sen_length` tokens. Default: 50.
 		invalid_vocab_times (int):  A cut-off threshold of invalid tokens. All tokens appear
 			not less than `invalid_vocab_times` in the **whole dataset** (except valid words) will be
-			marked as invalid words. Otherwise, they are unknown words, both in training or
+			marked as invalid vocabs. Otherwise, they are unknown words, both in training or
 			testing stages. Default: 0 (No unknown words).
 
 	Refer to :class:`.SingleTurnDialog` for attributes and methods.
