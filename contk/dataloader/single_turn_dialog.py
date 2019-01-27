@@ -99,7 +99,7 @@ class SingleTurnDialog(BasicLanguageGeneration):
 		res_resp[res_resp >= self.valid_vocab_len] = self.unk_id
 		return res
 
-	def get_teacher_forcing_metric(self, gen_prob_key="gen_prob"):
+	def get_teacher_forcing_metric(self, gen_log_prob_key="gen_log_prob"):
 		'''Get metric for teacher-forcing mode.
 
 		It contains:
@@ -109,7 +109,7 @@ class SingleTurnDialog(BasicLanguageGeneration):
 		Arguments:
 			gen_prob_key (str): default: `gen_prob`. Refer to :class:`.metric.PerlplexityMetric`
 		'''
-		return PerlplexityMetric(self, gen_prob_key=gen_prob_key)
+		return PerlplexityMetric(self, gen_log_prob_key=gen_log_prob_key)
 
 	def get_inference_metric(self, gen_key="gen"):
 		'''Get metric for inference.

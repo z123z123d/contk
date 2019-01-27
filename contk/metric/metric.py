@@ -78,7 +78,7 @@ class PerlplexityMetric(MetricBase):
 
 		# perform random check to assert the probability is valid
 		checkid = random.randint(0, len(resp_length)-1)
-		if resp_length[checkid]-2 > 0:
+		if resp_length[checkid] < 2:
 			raise ValueError("resp_length must no less than 2, because <go> and <eos> are always included.")
 		checkrow = random.randint(0, resp_length[checkid]-2)
 		if not np.isclose(np.sum(np.exp(gen_log_prob[checkid][checkrow])), 1):
@@ -104,20 +104,20 @@ class PerlplexityMetric(MetricBase):
 
 			resp_now = resp_allwords[i][1:single_length]
 
-			if self.invalid_vocab:
-				if resp_now.shape[1] != self.dataloader.vocab_size:
+			if not self.invalid_vocab:
+				if gen_log_prob[i].shape[1] != self.dataloader.vocab_size:
 					raise ValueError("The third dimension gen_log_prob_key should be equals to vocab_size when \
 						invalid_vocab = False, \
-						but %d != %d" % (resp_now.shape[1], self.dataloader.vocab_size))
+						but %d != %d" % (gen_log_prob[i].shape[1], self.dataloader.vocab_size))
 			else:
-				if resp_now.shape[1] != self.dataloader.all_vocab_size:
+				if gen_log_prob[i].shape[1] != self.dataloader.all_vocab_size:
 					raise ValueError("The third dimension gen_log_prob_key should be equals to all_vocab_size \
 						when invalid_vocab = True, \
-						but %d != %d" % (resp_now.shape[1], self.dataloader.vocab_size))
+						but %d != %d" % (gen_log_prob[i].shape[1], self.dataloader.vocab_size))
 
 			# calc normal vocab
-			normal_idx = np.where(resp_now != self.dataloader.unk_id and \
-									resp_now < self.dataloader.vocab_size)
+			normal_idx = np.where(np.logical_and(resp_now != self.dataloader.unk_id, \
+									resp_now < self.dataloader.vocab_size))
 			self.word_loss += -np.sum(gen_log_prob[i][normal_idx, resp_now[normal_idx]])
 			self.length_sum += len(normal_idx)
 

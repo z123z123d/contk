@@ -160,7 +160,7 @@ class MultiTurnDialog(BasicLanguageGeneration):
 			list(map(lambda word: self.all_vocab_list[word], sent)), \
 			index))
 
-	def get_teacher_forcing_metric(self, gen_prob_key="gen_prob"):
+	def get_teacher_forcing_metric(self, gen_log_prob_key="gen_log_prob"):
 		'''Get metric for teacher-forcing mode.
 
 		It contains:
@@ -170,7 +170,7 @@ class MultiTurnDialog(BasicLanguageGeneration):
 		Arguments:
 			gen_prob_key (str): default: `gen_prob`. Refer to :class:`.metric.PerlplexityMetric`
 		'''
-		return MultiTurnPerplexityMetric(self, gen_prob_key=gen_prob_key)
+		return MultiTurnPerplexityMetric(self, gen_log_prob_key=gen_log_prob_key)
 
 	def get_inference_metric(self, gen_key="gen"):
 		'''Get metric for inference.

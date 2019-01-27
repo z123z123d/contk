@@ -91,7 +91,7 @@ class TestMultiTurnDialog():
 			length = len(dl.data[key]['session'])
 			for i in range(length):
 				batch = dl.get_batch(key, [i])
-				assert dl.unk_id not in batch["sent_vocabs"]
+				assert dl.unk_id not in batch["sent_allvocabs"]
 				batch = dl.get_batch(key, [i])
 				if dl.unk_id in batch["sent"]:
 					flag = True
