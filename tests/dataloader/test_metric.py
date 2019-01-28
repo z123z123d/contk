@@ -80,9 +80,8 @@ class FakeDataLoader:
 
 	def get_data(self, reference_key=None, reference_len_key=None, gen_prob_key=None, gen_key=None, \
 					   post_key=None, resp_key=None, context_key=None, multi_turn=False, to_list=False, \
-				 pad=True, random_check=True, full_check=True, \
-				 different_turn_len=False, \
-				 ref_len_flag=2, gen_len_flag=2, \
+				 pad=True, random_check=False, full_check=False, \
+				 ref_len_flag=1, gen_len_flag=1, different_turn_len=False, \
 				 batch=5, length=15):
 		data = { \
 			reference_key: [], \
@@ -103,7 +102,7 @@ class FakeDataLoader:
 				resp_key: [], \
 				context_key: [], \
 			}
-			turn_len = randrange(1, 5) if different_turn_len else 5
+			turn_len = randrange(1, 5)
 			for turn in range(turn_len if multi_turn else 1):
 				ref = [[], [], [], []]
 				gen = [[]]
@@ -118,18 +117,18 @@ class FakeDataLoader:
 
 				gen[0] = self.get_sen(length, randrange(2, length), gen = True, pad = pad)
 
-				if ref_len_flag < 2:
+				if ref_len_flag < 1:
 					ref[0] = self.get_sen(length, ref_len_flag + 2, gen = False, pad = True)
 					ref_len = ref_len_flag
-				if gen_len_flag < 2:
+				if gen_len_flag < 1:
 					gen[0] = self.get_sen(length, gen_len_flag + 1, gen = True, pad = True)
 
-				for j in range(ref_len - 1 if not pad else length):
+				for j in range(ref_len if not pad else length):
 					vocab_prob = []
 					for k in range(self.vocab_size):
 						vocab_prob.append(random())
 					vocab_prob /= np.sum(vocab_prob)
-					if random_check == True:
+					if random_check == False:
 						vocab_prob = np.log(vocab_prob)
 					gen_prob.append(vocab_prob)
 
@@ -152,33 +151,45 @@ class FakeDataLoader:
 					if context_key:
 						data[context_key].append(ref[3])
 				else:
-					if reference_key:
+					if reference_key and ((not different_turn_len) or randrange(0, 2) == 1):
 						single_batch[reference_key].append(ref[0])
-					if reference_len_key:
+					if reference_len_key and ((not different_turn_len) or randrange(0, 2) == 1):
 						single_batch[reference_len_key].append(ref_len)
-					if gen_prob_key:
+					if gen_prob_key and ((not different_turn_len) or randrange(0, 2) == 1):
 						single_batch[gen_prob_key].append(gen_prob)
-					if gen_key:
+					if gen_key and ((not different_turn_len) or randrange(0, 2) == 1):
 						single_batch[gen_key].append(gen[0])
-					if post_key:
+					if post_key and ((not different_turn_len) or randrange(0, 2) == 1):
 						single_batch[post_key].append(ref[1])
-					if resp_key:
+					if resp_key and ((not different_turn_len) or randrange(0, 2) == 1):
 						single_batch[resp_key].append(ref[2])
-					if context_key:
+					if context_key and ((not different_turn_len) or randrange(0, 2) == 1):
 						single_batch[context_key].append(ref[3])
 
 			if multi_turn:
 				for key in data.keys():
 					data[key].append(single_batch[key])
-		if full_check == False:
+		if full_check:
 			if multi_turn:
-				data[gen_prob_key][0][0][0] -= 0.5
+				data[gen_prob_key][0][0][0] -= 1
 			else:
-				data[gen_prob_key][0][0] -= 0.5
+				data[gen_prob_key][0][0] -= 1
 		if not to_list:
 			for i in data.keys():
 				data[i] = np.array(data[i])
 		return data
+
+
+test_argument =  [ 'default',   'custom',   'custom',   'custom',   'custom',       'custom',     'custom',     'custom']
+test_shape =     [     'pad',      'pad',      'jag',      'pad',      'pad',          'pad',        'pad',        'pad']
+test_type =      [   'array',    'array',     'list',     'list',     'list',         'list',       'list',       'list']
+test_batch_len = [   'equal',    'equal',    'equal',    'eqaul',  'unequal',        'equal',      'euqal',      'euqal']
+test_turn_len =  [   'equal',    'equal',  'unequal',    'equal',    'equal',        'equal',      'equal',      'equal']
+test_check =     ['no_check', 'no_check', 'no_check', 'no_check', 'no_check', 'random_check', 'full_check',   'no_check']
+test_gen_len =   [         1,          1,          1,          1,          1,              1,            1,            0]
+
+perplexity_test_parameter = zip(test_argument, test_shape, test_type, \
+							 test_batch_len, test_check)
 
 
 class TestPerlplexityMetric():
@@ -194,133 +205,44 @@ class TestPerlplexityMetric():
 				word_loss += -(input[gen_prob_key][i][j][input[reference_key][i][j + 1]])
 		return np.exp(word_loss / length_sum)
 
-	def test_close1(self):
+	@pytest.mark.parametrize('argument, shape, type, batch_len, check', perplexity_test_parameter)
+	def test_close(self, argument, shape, type, batch_len, check):
+		# 'default' or 'custom'
+		# 'pad' or 'jag'
+		# 'list' or 'array'
+		# 'equal' or 'unequal'
+		# 'random_check' or 'full_check' or 'no_check'
 		dataloader = FakeDataLoader()
-		data = dataloader.get_data(reference_key='resp', reference_len_key='resp_length', gen_prob_key='gen_prob', \
-								   multi_turn=False, to_list=False, \
-								   pad=True, random_check=True, full_check=True)
-
-		pm = PerlplexityMetric(dataloader)
+		reference_key, reference_len_key, gen_prob_key = ('resp', 'resp_length', 'gen_prob') \
+			if argument == 'default' else ('rpk', 'rl', 'gp')
+		random_check = check == 'random_check'
+		full_check = check == 'full_check'
+		data = dataloader.get_data(reference_key=reference_key, reference_len_key=reference_len_key, gen_prob_key=gen_prob_key, \
+								   to_list=(type == 'list'), pad=(shape == 'pad'), \
+								   random_check=random_check, full_check=full_check)
 		_data = data
-		pm.forward(data)
+		if argument == 'default':
+			pm = PerlplexityMetric(dataloader, full_check=full_check)
+		else:
+			pm = PerlplexityMetric(dataloader, reference_key, reference_len_key, gen_prob_key, full_check=full_check)
 
-		assert np.isclose(pm.close()['perplexity'], self.get_perplexity(data))
-		assert _data == data
-
-	def test_close2(self):
-		dataloader = FakeDataLoader()
-		data = dataloader.get_data(reference_key='rfk', reference_len_key='rlk', gen_prob_key='gpk', \
-								   multi_turn=False, to_list=False, \
-								   pad=True, random_check=True, full_check=True)
-
-		pm = PerlplexityMetric(dataloader, 'rfk', 'rlk', 'gpk')
-		pm.forward(data)
-
-		assert np.isclose(pm.close()['perplexity'], self.get_perplexity(data, 'rfk', 'rlk', 'gpk'))
-
-	def test_close3(self):
-		dataloader = FakeDataLoader()
-		data = dataloader.get_data(reference_key='rfk', reference_len_key='rlk', gen_prob_key='gpk', \
-								   multi_turn=False, to_list=False, \
-								   pad=False, random_check=True, full_check=True, \
-								   different_turn_len=True)
-
-		pm = PerlplexityMetric(dataloader, 'rfk', 'rlk', 'gpk')
-		_data = data
-		pm.forward(data)
-
-		assert np.isclose(pm.close()['perplexity'], self.get_perplexity(data, 'rfk', 'rlk', 'gpk'))
-		assert _data == data
-
-	def test_close4(self):
-		dataloader = FakeDataLoader()
-		data = dataloader.get_data(reference_key='rfk', reference_len_key='rlk', gen_prob_key='gpk', \
-								   multi_turn=False, to_list=True, \
-								   pad=True, random_check=True, full_check=True)
-
-		pm = PerlplexityMetric(dataloader, 'rfk', 'rlk', 'gpk')
-		_data = data
-		pm.forward(data)
-
-		assert np.isclose(pm.close()['perplexity'], self.get_perplexity(data, 'rfk', 'rlk', 'gpk'))
-		assert _data == data
-
-	def test_close5(self):
-		dataloader = FakeDataLoader()
-		data = dataloader.get_data(reference_key='rfk', reference_len_key='rlk', gen_prob_key='gpk', \
-								   multi_turn=False, to_list=False, \
-								   pad=False, random_check=True, full_check=True)
-
-		pm = PerlplexityMetric(dataloader, 'rfk', 'rlk', 'gpk')
-		_data = data
-		pm.forward(data)
-
-		assert np.isclose(pm.close()['perplexity'], self.get_perplexity(data, 'rfk', 'rlk', 'gpk'))
-		assert _data == data
-
-	def test_close6(self):
-		dataloader = FakeDataLoader()
-		data = dataloader.get_data(reference_key='rfk', reference_len_key='rlk', gen_prob_key='gpk', \
-								   multi_turn=False, to_list=True, \
-								   pad=False, random_check=True, full_check=True)
-		data['rfk'] = np.delete(data['rfk'], 1, 0)
-
-		pm = PerlplexityMetric(dataloader, 'rfk', 'rlk', 'gpk')
-		_data = data
-		with pytest.raises(ValueError):
+		if batch_len == 'unequal':
+			data[reference_key] = np.delete(data[reference_key], 1, 0)
+			with pytest.raises(ValueError, match='Batch num is not matched.'):
+				pm.forward(data)
+		elif check == 'no_check':
 			pm.forward(data)
-		assert _data == data
+			assert np.isclose(pm.close()['perplexity'], self.get_perplexity(data, reference_key, reference_len_key, \
+																			gen_prob_key))
+		else:
+			print('random_check, full_check', random_check, full_check)
+			with pytest.raises(ValueError, \
+							   match='data\[gen_prob_key\] must be processed after log_softmax.'):
+				pm.forward(data)
+		assert data == _data
 
-	def test_close7(self):
-		dataloader = FakeDataLoader()
-		data = dataloader.get_data(reference_key='rfk', reference_len_key='rlk', gen_prob_key='gpk', \
-								   multi_turn=False, to_list=True, \
-								   pad=False, random_check=True, full_check=True)
-		data['rfk'] = np.delete(data['rlk'], 1, 0)
-
-		pm = PerlplexityMetric(dataloader, 'rfk', 'rlk', 'gpk')
-		_data = data
-		with pytest.raises(ValueError):
-			pm.forward(data)
-		assert _data == data
-
-	def test_close8(self):
-		dataloader = FakeDataLoader()
-		data = dataloader.get_data(reference_key='rfk', reference_len_key='rlk', gen_prob_key='gpk', \
-								   multi_turn=False, to_list=True, \
-								   pad=False, random_check=True, full_check=True)
-		data['rfk'] = np.delete(data['gpk'], 1, 0)
-
-		_data = data
-		pm = PerlplexityMetric(dataloader, 'rfk', 'rlk', 'gpk')
-		with pytest.raises(ValueError):
-			pm.forward(data)
-		assert _data == data
-
-	def test_close9(self):
-		dataloader = FakeDataLoader()
-		data = dataloader.get_data(reference_key='rfk', reference_len_key='rlk', gen_prob_key='gpk', \
-								   multi_turn=False, to_list=True, \
-								   pad=False, random_check=False, full_check=True)
-
-		_data = data
-		pm = PerlplexityMetric(dataloader, 'rfk', 'rlk', 'gpk')
-		with pytest.raises(ValueError):
-			pm.forward(data)
-		assert _data == data
-
-	def test_close10(self):
-		dataloader = FakeDataLoader()
-		data = dataloader.get_data(reference_key='rfk', reference_len_key='rlk', gen_prob_key='gpk', \
-								   multi_turn=False, to_list=True, \
-								   pad=False, random_check=True, full_check=False)
-
-		_data = data
-		pm = PerlplexityMetric(dataloader, 'rfk', 'rlk', 'gpk', full_check=True)
-		with pytest.raises(ValueError):
-			pm.forward(data)
-		assert _data == data
-
+multi_perplexity_test_parameter = zip(test_argument, test_shape, test_type, \
+							 test_batch_len, test_turn_len, test_check)
 
 class TestMultiTurnPerplexityMetric:
 	def get_perplexity(self, input, reference_key='sent', reference_len_key='sent_length', gen_prob_key='gen_prob'):
@@ -336,120 +258,48 @@ class TestMultiTurnPerplexityMetric:
 					word_loss += -(input[gen_prob_key][turn][i][j][input[reference_key][turn][i][j + 1]])
 		return np.exp(word_loss / length_sum)
 
-	def test_close1(self):
+	@pytest.mark.parametrize('argument, shape, type, batch_len, turn_len, check', multi_perplexity_test_parameter)
+	def test_close(self, argument, shape, type, batch_len, turn_len, check):
+		# 'default' or 'custom'
+		# 'pad' or 'jag'
+		# 'list' or 'array'
+		# 'equal' or 'unequal'
+		# 'equal' or 'unequal'
+		# 'random_check' or 'full_check' or 'no_check'
 		dataloader = FakeDataLoader()
-		data = dataloader.get_data(reference_key='sent', reference_len_key='sent_length', gen_prob_key='gen_prob', \
-								   multi_turn=True, to_list=False, \
-								   pad=True, random_check=True, full_check=True)
-
+		reference_key, reference_len_key, gen_prob_key = ('sent', 'sent_length', 'gen_prob') \
+			if argument == 'default' else ('rpk', 'rl', 'gp')
+		random_check = check == 'random_check'
+		full_check = check == 'full_check'
+		data = dataloader.get_data(reference_key=reference_key, reference_len_key=reference_len_key, gen_prob_key=gen_prob_key, \
+								   to_list=(type == 'list'), pad=(shape == 'pad'), \
+								   multi_turn=True, different_turn_len=(turn_len == 'unequal'), \
+								   random_check=random_check, full_check=full_check)
 		_data = data
-		mtpm = MultiTurnPerplexityMetric(dataloader)
-		mtpm.forward(data)
+		if argument == 'default':
+			mtpm = MultiTurnPerplexityMetric(dataloader)
+		else:
+			mtpm = MultiTurnPerplexityMetric(dataloader, reference_key, reference_len_key, gen_prob_key, \
+											 full_check=full_check)
 
-		assert np.isclose(mtpm.close()['perplexity'], self.get_perplexity(data))
-		assert _data == data
-
-	def test_close2(self):
-		dataloader = FakeDataLoader()
-		data = dataloader.get_data(reference_key='rk', reference_len_key='rlk', gen_prob_key='gpk', \
-								   multi_turn=True, to_list=False, \
-								   pad=True, random_check=True, full_check=True)
-
-		_data = data
-		mtpm = MultiTurnPerplexityMetric(dataloader, 'rk', 'rlk', 'gpk')
-		mtpm.forward(data)
-
-		assert np.isclose(mtpm.close()['perplexity'], self.get_perplexity(data, 'rk', 'rlk', 'gpk'))
-		assert _data == data
-
-	def test_close3(self):
-		dataloader = FakeDataLoader()
-		data = dataloader.get_data(reference_key='rk', reference_len_key='rlk', gen_prob_key='gpk', \
-								   multi_turn=True, to_list=False, \
-								   pad=False, random_check=True, full_check=True, different_turn_len=True)
-
-		_data = data
-		mtpm = MultiTurnPerplexityMetric(dataloader, 'rk', 'rlk', 'gpk')
-		mtpm.forward(data)
-
-		assert np.isclose(mtpm.close()['perplexity'], self.get_perplexity(data, 'rk', 'rlk', 'gpk'))
-		assert _data == data
-
-	def test_close4(self):
-		dataloader = FakeDataLoader()
-		data = dataloader.get_data(reference_key='rk', reference_len_key='rlk', gen_prob_key='gpk', \
-								   multi_turn=True, to_list=True, \
-								   pad=False, random_check=True, full_check=True, different_turn_len=True)
-
-		_data = data
-		mtpm = MultiTurnPerplexityMetric(dataloader, 'rk', 'rlk', 'gpk')
-		mtpm.forward(data)
-
-		assert np.isclose(mtpm.close()['perplexity'], self.get_perplexity(data, 'rk', 'rlk', 'gpk'))
-		assert _data == data
-
-	def test_close5(self):
-		dataloader = FakeDataLoader()
-		data = dataloader.get_data(reference_key='rfk', reference_len_key='rlk', gen_prob_key='gpk', \
-								   multi_turn=True, to_list=True, \
-								   pad=False, random_check=False, full_check=True)
-
-		_data = data
-		mtpm = MultiTurnPerplexityMetric(dataloader, 'rfk', 'rlk', 'gpk')
-		with pytest.raises(ValueError):
+		if batch_len == 'unequal' or turn_len == 'unequal':
+			data[reference_key] = np.delete(data[reference_key], 1, 0)
+			with pytest.raises(ValueError, match='Batch num is not matched.'):
+				mtpm.forward(data)
+		elif check == 'no_check':
 			mtpm.forward(data)
-		assert _data == data
+			assert np.isclose(mtpm.close()['perplexity'], self.get_perplexity(data, reference_key, reference_len_key, \
+																			gen_prob_key))
+		else:
+			print('random_check, full_check', random_check, full_check)
+			with pytest.raises(ValueError, \
+							   match='data\[gen_prob_key\] must be processed after log_softmax.'):
+				mtpm.forward(data)
+		assert data == _data
 
-	def test_close6(self):
-		dataloader = FakeDataLoader()
-		data = dataloader.get_data(reference_key='rfk', reference_len_key='rlk', gen_prob_key='gpk', \
-								   multi_turn=True, to_list=True, \
-								   pad=False, random_check=True, full_check=False)
 
-		_data = data
-		mtpm = MultiTurnPerplexityMetric(dataloader, 'rfk', 'rlk', 'gpk', full_check=True)
-		with pytest.raises(ValueError):
-			mtpm.forward(data)
-		assert _data == data
+bleu_test_parameter = zip(test_argument, test_argument, test_type, test_batch_len, test_gen_len)
 
-	def test_close7(self):
-		dataloader = FakeDataLoader()
-		data = dataloader.get_data(reference_key='rfk', reference_len_key='rlk', gen_prob_key='gpk', \
-								   multi_turn=True, to_list=True, \
-								   pad=False, random_check=True, full_check=False)
-		data['rfk'] = np.delete(data['rfk'], 1, 0)
-
-		_data = data
-		mtpm = MultiTurnPerplexityMetric(dataloader, 'rfk', 'rlk', 'gpk')
-		with pytest.raises(ValueError):
-			mtpm.forward(data)
-		assert _data == data
-
-	def test_close8(self):
-		dataloader = FakeDataLoader()
-		data = dataloader.get_data(reference_key='rfk', reference_len_key='rlk', gen_prob_key='gpk', \
-								   multi_turn=True, to_list=True, \
-								   pad=False, random_check=True, full_check=False)
-		data['rlk'] = np.delete(data['rlk'], 1, 0)
-
-		_data = data
-		mtpm = MultiTurnPerplexityMetric(dataloader, 'rfk', 'rlk', 'gpk')
-		with pytest.raises(ValueError):
-			mtpm.forward(data)
-		assert _data == data
-
-	def test_close9(self):
-		dataloader = FakeDataLoader()
-		data = dataloader.get_data(reference_key='rfk', reference_len_key='rlk', gen_prob_key='gpk', \
-								   multi_turn=True, to_list=True, \
-								   pad=False, random_check=True, full_check=False)
-		data['gpk'] = np.delete(data['gpk'], 1, 0)
-
-		_data = data
-		mtpm = MultiTurnPerplexityMetric(dataloader, 'rfk', 'rlk', 'gpk')
-		with pytest.raises(ValueError):
-			mtpm.forward(data)
-		assert _data == data
 
 class TestBleuCorpusMetric:
 	def get_bleu(self, dataloader, input, reference_key, gen_key):
@@ -465,91 +315,35 @@ class TestBleuCorpusMetric:
 		print('bleu:', corpus_bleu(refs, gens, smoothing_function=SmoothingFunction().method7))
 		return corpus_bleu(refs, gens, smoothing_function=SmoothingFunction().method7)
 
-	def test_close1(self):
+	@pytest.mark.parametrize('argument, shape, type, batch_len, gen_len', bleu_test_parameter)
+	def test_close(self, argument, shape, type, batch_len, gen_len):
+		# 'default' or 'custom'
+		# 'pad' or 'jag'
+		# 'list' or 'array'
+		# 'equal' or 'unequal'
+		# 0, 1
 		dataloader = FakeDataLoader()
-		data = dataloader.get_data(reference_key='resp', gen_key='gen', \
-								   multi_turn=False, to_list=False, \
-								   pad=True, random_check=True, full_check=True)
-
+		reference_key, gen_key = ('resp', 'gen') \
+			if argument == 'default' else ('rk', 'gpk')
+		data = dataloader.get_data(reference_key=reference_key, gen_key=gen_key, \
+								   to_list=(type == 'list'), pad=(shape == 'pad'), \
+								   gen_len_flag=gen_len)
 		_data = data
-		bm = BleuCorpusMetric(dataloader)
-		bm.forward(data)
+		if argument == 'default':
+			bcm = BleuCorpusMetric(dataloader)
+		else:
+			bcm = BleuCorpusMetric(dataloader, reference_key, gen_key)
 
-		print(self.get_bleu(dataloader, data, 'resp', 'gen'))
-		assert np.isclose(bm.close()['bleu'], self.get_bleu(dataloader, data, 'resp', 'gen'))
-		assert _data == data
+		if batch_len == 'unequal':
+			data[reference_key] = np.delete(data[reference_key], 1, 0)
+			with pytest.raises(ValueError, match='Batch num is not matched.'):
+				bcm.forward(data)
+		else:
+				bcm.forward(data)
+				assert np.isclose(bcm.close()['bleu'], self.get_bleu(dataloader, data, reference_key, gen_key))
+		assert data == _data
 
-	def test_close2(self):
-		dataloader = FakeDataLoader()
-		data = dataloader.get_data(reference_key='rfk', gen_key='gk', \
-								   multi_turn=False, to_list=False, \
-								   pad=True, random_check=True, full_check=True)
-
-		_data = data
-		bm = BleuCorpusMetric(dataloader, 'rfk', 'gk')
-		bm.forward(data)
-
-		print(self.get_bleu(dataloader, data, 'rfk', 'gk'))
-		assert np.isclose(bm.close()['bleu'], self.get_bleu(dataloader, data, 'rfk', 'gk'))
-		assert _data == data
-
-	def test_close3(self):
-		dataloader = FakeDataLoader()
-		data = dataloader.get_data(reference_key='rfk', gen_key='gk', \
-								   multi_turn=False, to_list=True, \
-								   pad=True, random_check=True, full_check=True)
-
-		_data = data
-		bm = BleuCorpusMetric(dataloader, 'rfk', 'gk')
-		bm.forward(data)
-
-		print(self.get_bleu(dataloader, data, 'rfk', 'gk'))
-		assert np.isclose(bm.close()['bleu'], self.get_bleu(dataloader, data, 'rfk', 'gk'))
-		assert _data == data
-
-	def test_close4(self):
-		dataloader = FakeDataLoader()
-		data = dataloader.get_data(reference_key='rfk', gen_key='gk', \
-								   multi_turn=False, to_list=False, \
-								   pad=True, random_check=True, full_check=True, \
-								   gen_len_flag=0)
-
-		_data = data
-		bm = BleuCorpusMetric(dataloader, 'rfk', 'gk')
-		bm.forward(data)
-
-		assert self.get_bleu(dataloader, data, 'rfk', 'gk') == 0
-		assert np.isclose(bm.close()['bleu'], self.get_bleu(dataloader, data, 'rfk', 'gk'))
-		assert _data == data
-
-	def test_close5(self):
-		dataloader = FakeDataLoader()
-		data = dataloader.get_data(reference_key='rfk', gen_key='gk', \
-								   multi_turn=False, to_list=False, \
-								   pad=True, random_check=True, full_check=True, \
-								   ref_len_flag=0)
-
-		_data = data
-		bm = BleuCorpusMetric(dataloader, 'rfk', 'gk')
-		bm.forward(data)
-
-		print(self.get_bleu(dataloader, data, 'rfk', 'gk'))
-		assert self.get_bleu(dataloader, data, 'rfk', 'gk') == 0
-		assert np.isclose(bm.close()['bleu'], self.get_bleu(dataloader, data, 'rfk', 'gk'))
-		assert _data == data
-
-	def test_close6(self):
-		dataloader = FakeDataLoader()
-		data = dataloader.get_data(reference_key='rfk', gen_key='gk', \
-								   multi_turn=False, to_list=False, \
-								   pad=True, random_check=True, full_check=True, \
-								   ref_len_flag=0)
-		data['rfk'] = np.delete(data['rfk'], -1, 0)
-		_data = data
-		bm = BleuCorpusMetric(dataloader, 'rfk', 'gk')
-		with pytest.raises(ValueError):
-			bm.forward(data)
-		assert _data == data
+multi_bleu_test_parameter = zip(test_argument, test_shape, test_type, test_batch_len, test_turn_len, test_gen_len)
 
 
 class TestMultiTurnBleuCorpusMetric:
@@ -567,94 +361,40 @@ class TestMultiTurnBleuCorpusMetric:
 		print('bleu:', corpus_bleu(refs, gens, smoothing_function=SmoothingFunction().method7))
 		return corpus_bleu(refs, gens, smoothing_function=SmoothingFunction().method7)
 
-	def test_close1(self):
+	@pytest.mark.parametrize('argument, shape, type, batch_len, turn_len, gen_len', multi_bleu_test_parameter)
+	def test_close(self, argument, shape, type, batch_len, turn_len, gen_len):
+		# 'default' or 'custom'
+		# 'pad' or 'jag'
+		# 'list' or 'array'
+		# 'equal' or 'unequal'
+		# 'equal' or 'unequal'
+		# 0, 1
 		dataloader = FakeDataLoader()
-		data = dataloader.get_data(reference_key='sent', gen_key='gen', \
-								   multi_turn=True, to_list=False, \
-								   pad=True, random_check=True, full_check=True)
-
+		reference_key, gen_key = ('sent', 'gen') \
+			if argument == 'default' else ('rk', 'gpk')
+		data = dataloader.get_data(reference_key=reference_key, gen_key=gen_key, \
+								   multi_turn=True, to_list=(type == 'list'), pad=(shape == 'pad'), \
+								   gen_len_flag=gen_len, different_turn_len=(turn_len == 'unequal'))
 		_data = data
-		mtbm = MultiTurnBleuCorpusMetric(dataloader)
-		mtbm.forward(data)
-		assert np.isclose(mtbm.close()['bleu'], self.get_bleu(dataloader, data, 'sent', 'gen'))
-		assert _data == data
+		if argument == 'default':
+			mtbcm = MultiTurnBleuCorpusMetric(dataloader)
+		else:
+			mtbcm = MultiTurnBleuCorpusMetric(dataloader, reference_key, gen_key)
 
-	def test_close2(self):
-		dataloader = FakeDataLoader()
-		data = dataloader.get_data(reference_key='rfk', gen_key='gk', \
-								   multi_turn=True, to_list=False, \
-								   pad=True, random_check=True, full_check=True)
+		if batch_len == 'unequal':
+			data[reference_key] = np.delete(data[reference_key], 1, 0)
+			with pytest.raises(ValueError, match='Batch num is not matched.'):
+				mtbcm.forward(data)
+		elif turn_len == 'unequal' or gen_len == 0:
+			with pytest.raises(ValueError, match='Turn num is not matched.'):
+				mtbcm.forward(data)
+		else:
+			mtbcm.forward(data)
+			assert np.isclose(mtbcm.close()['bleu'], self.get_bleu(dataloader, data, reference_key, gen_key))
+		assert data == _data
 
-		_data = data
-		mtbm = MultiTurnBleuCorpusMetric(dataloader, 'rfk', 'gk')
-		mtbm.forward(data)
-		assert np.isclose(mtbm.close()['bleu'], self.get_bleu(dataloader, data, 'rfk', 'gk'))
-		assert _data == data
 
-	def test_close3(self):
-		dataloader = FakeDataLoader()
-		data = dataloader.get_data(reference_key='rfk', gen_key='gk', \
-								   multi_turn=True, to_list=True, \
-								   pad=True, random_check=True, full_check=True)
-
-		_data = data
-		mtbm = MultiTurnBleuCorpusMetric(dataloader, 'rfk', 'gk')
-		mtbm.forward(data)
-		assert np.isclose(mtbm.close()['bleu'], self.get_bleu(dataloader, data, 'rfk', 'gk'))
-		assert _data == data
-
-	def test_close4(self):
-		dataloader = FakeDataLoader()
-		data = dataloader.get_data(reference_key='rfk', gen_key='gk', \
-								   multi_turn=True, to_list=False, \
-								   pad=True, random_check=True, full_check=True, \
-								   ref_len_flag=0)
-
-		_data = data
-		mtbm = MultiTurnBleuCorpusMetric(dataloader, 'rfk', 'gk')
-		mtbm.forward(data)
-		assert self.get_bleu(dataloader, data, 'rfk', 'gk') == 0
-		assert np.isclose(mtbm.close()['bleu'], self.get_bleu(dataloader, data, 'rfk', 'gk'))
-		assert _data == data
-
-	def test_close5(self):
-		dataloader = FakeDataLoader()
-		data = dataloader.get_data(reference_key='rfk', gen_key='gk', \
-								   multi_turn=True, to_list=False, \
-								   pad=True, random_check=True, full_check=True, \
-								   gen_len_flag=0)
-
-		_data = data
-		mtbm = MultiTurnBleuCorpusMetric(dataloader, 'rfk', 'gk')
-		with pytest.raises(ValueError):
-			mtbm.forward(data)
-		assert _data == data
-
-	def test_close6(self):
-		dataloader = FakeDataLoader()
-		data = dataloader.get_data(reference_key='rfk', gen_key='gk', \
-								   multi_turn=True, to_list=False, \
-								   pad=True, random_check=True)
-		data['rfk'] = np.delete(data['rfk'], 1, 0)
-
-		_data = data
-		mtbm = MultiTurnBleuCorpusMetric(dataloader, 'rfk', 'gk')
-		with pytest.raises(ValueError):
-			mtbm.forward(data)
-		assert _data == data
-
-	def test_close7(self):
-		dataloader = FakeDataLoader()
-		data = dataloader.get_data(reference_key='rfk', gen_key='gk', \
-								   multi_turn=True, to_list=False, \
-								   pad=False, random_check=True, \
-								   different_turn_len=True)
-
-		_data = data
-		mtbm = MultiTurnBleuCorpusMetric(dataloader, 'rfk', 'gk')
-		mtbm.forward(data)
-		assert np.isclose(mtbm.close()['bleu'], self.get_bleu(dataloader, data, 'rfk', 'gk'))
-		assert _data == data
+single_turn_dialog_recorder_test_parameter = zip(test_argument, test_shape, test_type, test_batch_len)
 
 
 class TestSingleTurnDialogRecorder():
@@ -675,70 +415,36 @@ class TestSingleTurnDialogRecorder():
 
 		return ans
 
-	def test_close1(self):
+	@pytest.mark.parametrize('argument, shape, type, batch_len', single_turn_dialog_recorder_test_parameter)
+	def test_close(self, argument, shape, type, batch_len):
+		# 'default' or 'custom'
+		# 'pad' or 'jag'
+		# 'list' or 'array'
+		# 'equal' or 'unequal'
 		dataloader = FakeDataLoader()
-		data = dataloader.get_data(post_key='post', resp_key='resp', gen_key='gen', \
-								   multi_turn=False, to_list=False, \
-								   pad=True, random_check=True)
-
+		post_key, resp_key, gen_key = ('post', 'resp', 'gen') \
+			if argument == 'default' else ('pk', 'rk', 'gk')
+		data = dataloader.get_data(post_key=post_key, resp_key=resp_key, gen_key=gen_key, \
+								   to_list=(type == 'list'), pad=(shape == 'pad'))
 		_data = data
-		sdr = SingleTurnDialogRecorder(dataloader)
-		sdr.forward(data)
+		if argument == 'default':
+			sr = SingleTurnDialogRecorder(dataloader)
+		else:
+			sr = SingleTurnDialogRecorder(dataloader, post_key, resp_key, gen_key)
 
-		assert sdr.close() == self.get_sen_from_index(dataloader, data)
-		assert _data == data
+		if batch_len == 'unequal':
+			data[post_key] = np.delete(data[post_key], 1, 0)
+			with pytest.raises(ValueError, match='Batch num is not matched.'):
+				sr.forward(data)
+		else:
+			sr.forward(data)
+			assert sr.close() == self.get_sen_from_index(dataloader, data, post_key, resp_key, \
+																			gen_key)
+		assert data == _data
 
-	def test_close2(self):
-		dataloader = FakeDataLoader()
-		data = dataloader.get_data(post_key='pk', resp_key='rk', gen_key='gk', \
-								   multi_turn=False, to_list=False, \
-								   pad=True, random_check=True)
 
-		_data = data
-		sdr = SingleTurnDialogRecorder(dataloader, 'pk', 'rk', 'gk')
-		sdr.forward(data)
-
-		assert sdr.close() == self.get_sen_from_index(dataloader, data, 'pk', 'rk', 'gk')
-		assert _data == data
-
-	def test_close3(self):
-		dataloader = FakeDataLoader()
-		data = dataloader.get_data(post_key='pk', resp_key='rk', gen_key='gk', \
-								   multi_turn=False, to_list=False, \
-								   pad=True, random_check=True, \
-								   gen_len_flag=0)
-
-		_data = data
-		sdr = SingleTurnDialogRecorder(dataloader, 'pk', 'rk', 'gk')
-		sdr.forward(data)
-
-		assert sdr.close() == self.get_sen_from_index(dataloader, data, 'pk', 'rk', 'gk')
-		assert _data == data
-
-	def test_close4(self):
-		dataloader = FakeDataLoader()
-		data = dataloader.get_data(post_key='pk', resp_key='rk', gen_key='gk', \
-								   multi_turn=False, to_list=False, \
-								   pad=False, random_check=True)
-
-		_data = data
-		sdr = SingleTurnDialogRecorder(dataloader, 'pk', 'rk', 'gk')
-		sdr.forward(data)
-
-		assert sdr.close() == self.get_sen_from_index(dataloader, data, 'pk', 'rk', 'gk')
-		assert _data == data
-
-	def test_close5(self):
-		dataloader = FakeDataLoader()
-		data = dataloader.get_data(post_key='pk', resp_key='rk', gen_key='gk', \
-								   multi_turn=False, to_list=False, \
-								   pad=False, random_check=True)
-		data['pk'] = np.delete(data['pk'], 2, 0)
-		_data = data
-		sdr = SingleTurnDialogRecorder(dataloader, 'pk', 'rk', 'gk')
-		with pytest.raises(ValueError):
-			sdr.forward(data)
-		assert _data == data
+multi_turn_dialog_test_parameter = zip(test_argument, test_shape, test_type, \
+									   test_batch_len, test_gen_len)
 
 
 class TestMultiTurnDialogRecorder:
@@ -757,62 +463,37 @@ class TestMultiTurnDialogRecorder:
 
 		return ans
 
-	def test_close1(self):
+	@pytest.mark.parametrize('argument, shape, type, batch_len, gen_len', multi_turn_dialog_test_parameter)
+	def test_close(self, argument, shape, type, batch_len, gen_len):
+		# 'default' or 'custom'
+		# 'pad' or 'jag'
+		# 'list' or 'array'
+		# 'equal' or 'unequal'
+		# 'equal' or 'unequal'
+		# 0, 1
 		dataloader = FakeDataLoader()
-		data = dataloader.get_data(context_key='post', reference_key='resp', gen_key='gen', \
-								   multi_turn=True, pad=True)
+		context_key, reference_key, gen_key = ('context', 'reference', 'gen') \
+			if argument == 'default' else ('ck', 'rk', 'gk')
+		data = dataloader.get_data(context_key=context_key, reference_key=reference_key, gen_key=gen_key, \
+								   multi_turn=True, to_list=(type == 'list'), pad=(shape == 'pad'), \
+								   gen_len_flag=gen_len)
 		_data = data
-		mdr = MultiTurnDialogRecorder(dataloader)
-		mdr.forward(data)
+		if argument == 'default':
+			mtbr = MultiTurnDialogRecorder(dataloader)
+		else:
+			mtbr = MultiTurnDialogRecorder(dataloader, context_key, reference_key, gen_key)
 
-		assert mdr.close() == self.get_sen_from_index(dataloader, data)
-		assert _data == data
+		if batch_len == 'unequal':
+			data[reference_key] = np.delete(data[reference_key], 1, 0)
+			with pytest.raises(ValueError, match='Batch num is not matched.'):
+				mtbr.forward(data)
+		else:
+			mtbr.forward(data)
+			assert mtbr.close() == self.get_sen_from_index(dataloader, data, context_key, reference_key, gen_key)
+		assert data == _data
 
-	def test_close2(self):
-		dataloader = FakeDataLoader()
-		data = dataloader.get_data(context_key='ck', reference_key='rk', gen_key='gk', \
-								   multi_turn=True, pad=True)
-		_data = data
-		mdr = MultiTurnDialogRecorder(dataloader, 'ck', 'rk', 'gk')
-		mdr.forward(data)
 
-		assert mdr.close() == self.get_sen_from_index(dataloader, data, 'ck', 'rk', 'gk')
-		assert _data == data
-
-	def test_close3(self):
-		dataloader = FakeDataLoader()
-		data = dataloader.get_data(context_key='ck', reference_key='rk', gen_key='gk', \
-								   multi_turn=True, pad=True, to_list=True)
-		_data = data
-		mdr = MultiTurnDialogRecorder(dataloader, 'ck', 'rk', 'gk')
-		mdr.forward(data)
-
-		assert mdr.close() == self.get_sen_from_index(dataloader, data, 'ck', 'rk', 'gk')
-		assert _data == data
-
-	def test_close4(self):
-		dataloader = FakeDataLoader()
-		data = dataloader.get_data(context_key='ck', reference_key='rk', gen_key='gk', \
-								   multi_turn=True, pad=True, to_list=True)
-		mdr = MultiTurnDialogRecorder(dataloader, 'ck', 'rk', 'gk')
-		data['ck'] = np.delete(data['ck'], 1, 0)
-		_data = data
-
-		with pytest.raises(ValueError):
-			mdr.forward(data)
-		assert _data == data
-
-	def test_close5(self):
-		dataloader = FakeDataLoader()
-		data = dataloader.get_data(context_key='ck', reference_key='rk', gen_key='gk', \
-								   multi_turn=True, pad=True, to_list=True)
-		mdr = MultiTurnDialogRecorder(dataloader, 'ck', 'rk', 'gk')
-		data['gk'] = np.delete(data['gk'], 1, 0)
-		_data = data
-
-		with pytest.raises(ValueError):
-			mdr.forward(data)
-		assert _data == data
+language_generation_test_parameter = zip(test_argument, test_shape, test_type)
 
 
 class TestLanguageGenerationRecorder():
@@ -823,60 +504,26 @@ class TestLanguageGenerationRecorder():
 			print(ans[-1])
 		return ans
 
-	def test_close1(self):
+	@pytest.mark.parametrize('argument, shape, type', language_generation_test_parameter)
+	def test_close(self, argument, shape, type):
+		# 'default' or 'custom'
+		# 'pad' or 'jag'
+		# 'list' or 'array'
+		# 'equal' or 'unequal'
 		dataloader = FakeDataLoader()
-		data = dataloader.get_data(reference_key='sent', gen_key='gen', \
-								   multi_turn=False, to_list=False, \
-								   pad=True, random_check=True)
-
+		gen_key = 'gen' \
+			if argument == 'default' else 'gk'
+		data = dataloader.get_data(gen_key=gen_key, \
+								   to_list=(type == 'list'), pad=(shape == 'pad'))
 		_data = data
-		lg = LanguageGenerationRecorder(dataloader)
+		if argument == 'default':
+			lg = LanguageGenerationRecorder(dataloader)
+		else:
+			lg = LanguageGenerationRecorder(dataloader, gen_key)
+
 		lg.forward(data)
-
-		assert lg.close()['gen'] == self.get_sen_from_index(dataloader, data)
-		assert _data == data
-
-	def test_close2(self):
-		dataloader = FakeDataLoader()
-		data = dataloader.get_data(gen_key='gk', \
-								   multi_turn=False, to_list=False, \
-								   pad=True, random_check=True)
-
-		_data = data
-		lg = LanguageGenerationRecorder(dataloader, 'gk')
-		lg.forward(data)
-
-		assert lg.close()['gen'] == self.get_sen_from_index(dataloader, data, 'gk')
-		assert _data == data
-
-	def test_close3(self):
-		dataloader = FakeDataLoader()
-		data = dataloader.get_data(gen_key='gk', \
-								   multi_turn=False, to_list=False, \
-								   pad=True, random_check=True, \
-								   gen_len_flag=0)
-
-		_data = data
-		lg = LanguageGenerationRecorder(dataloader, 'gk')
-		lg.forward(data)
-
-		assert lg.close()['gen'] == self.get_sen_from_index(dataloader, data, 'gk')
-		assert _data == data
-
-	def test_close4(self):
-		dataloader = FakeDataLoader()
-		data = dataloader.get_data(gen_key='gk', \
-								   multi_turn=False, to_list=False, \
-								   pad=True, random_check=True, \
-								   gen_len_flag=1)
-
-		_data = data
-		lg = LanguageGenerationRecorder(dataloader, 'gk')
-		lg.forward(data)
-
-		assert lg.close()['gen'] == self.get_sen_from_index(dataloader, data, 'gk')
-		assert _data == data
-
+		assert lg.close()['gen'] == self.get_sen_from_index(dataloader, data, gen_key)
+		assert data == _data
 
 class TestMetricChain():
 	def test_init(self):
