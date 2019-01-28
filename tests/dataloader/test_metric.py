@@ -132,9 +132,6 @@ class FakeDataLoader:
 						vocab_prob = np.log(vocab_prob)
 					gen_prob.append(vocab_prob)
 
-				# (self, reference_key, reference_len_key, gen_prob_key, gen_key, \
-				#  post_key, resp_key, context_key, log_softmax=True, to_list=False, multi_turn=False):
-
 				if not multi_turn:
 					if reference_key:
 						data[reference_key].append(ref[0])
@@ -180,13 +177,19 @@ class FakeDataLoader:
 		return data
 
 
-test_argument =  [ 'default',   'custom',   'custom',   'custom',   'custom',       'custom',     'custom',     'custom']
-test_shape =     [     'pad',      'pad',      'jag',      'pad',      'pad',          'pad',        'pad',        'pad']
-test_type =      [   'array',    'array',     'list',     'list',     'list',         'list',       'list',       'list']
-test_batch_len = [   'equal',    'equal',    'equal',    'eqaul',  'unequal',        'equal',      'euqal',      'euqal']
-test_turn_len =  [   'equal',    'equal',  'unequal',    'equal',    'equal',        'equal',      'equal',      'equal']
-test_check =     ['no_check', 'no_check', 'no_check', 'no_check', 'no_check', 'random_check', 'full_check',   'no_check']
-test_gen_len =   [         1,          1,          1,          1,          1,              1,            1,            0]
+test_argument =  [ 'default',   'custom',   'custom',   'custom',   'custom',       'custom',     'custom',     'custom',     'custom',     'custom']
+test_shape =     [     'pad',      'pad',      'jag',      'pad',      'pad',          'pad',        'pad',        'pad',        'pad',        'pad']
+test_type =      [   'array',    'array',     'list',     'list',     'list',         'list',       'list',       'list',       'list',       'list']
+test_batch_len = [   'equal',    'equal',    'equal',    'eqaul',  'unequal',        'equal',      'euqal',      'euqal',      'euqal',      'euqal']
+test_turn_len =  [   'equal',    'equal',  'unequal',    'equal',    'equal',        'equal',      'equal',      'equal',      'equal',      'equal']
+test_check =     ['no_check', 'no_check', 'no_check', 'no_check', 'no_check', 'random_check', 'full_check',   'no_check',   'no_check',   'no_check']
+test_gen_len =   [         1,          1,          1,          1,          1,              1,            1,            0,            1,            0]
+test_ref_len =   [         1,          1,          1,          1,          1,              1,            1,            1,            0,            0]
+
+## test_batch_len: len(ref) == len(gen)?
+## test_turn_len: len(single_batch(ref)) == len(single_batch(gen))?
+## test_gen_len: 1 means normal, 0 means gen == empty
+## test_ref_len: 1 means normal, 0 means ref == empty
 
 perplexity_test_parameter = zip(test_argument, test_shape, test_type, \
 							 test_batch_len, test_check)
@@ -298,7 +301,7 @@ class TestMultiTurnPerplexityMetric:
 		assert data == _data
 
 
-bleu_test_parameter = zip(test_argument, test_argument, test_type, test_batch_len, test_gen_len)
+bleu_test_parameter = zip(test_argument, test_argument, test_type, test_batch_len, test_gen_len, test_ref_len)
 
 
 class TestBleuCorpusMetric:
@@ -315,19 +318,20 @@ class TestBleuCorpusMetric:
 		print('bleu:', corpus_bleu(refs, gens, smoothing_function=SmoothingFunction().method7))
 		return corpus_bleu(refs, gens, smoothing_function=SmoothingFunction().method7)
 
-	@pytest.mark.parametrize('argument, shape, type, batch_len, gen_len', bleu_test_parameter)
-	def test_close(self, argument, shape, type, batch_len, gen_len):
+	@pytest.mark.parametrize('argument, shape, type, batch_len, gen_len, ref_len', bleu_test_parameter)
+	def test_close(self, argument, shape, type, batch_len, gen_len, ref_len):
 		# 'default' or 'custom'
 		# 'pad' or 'jag'
 		# 'list' or 'array'
 		# 'equal' or 'unequal'
+		# 0, 1
 		# 0, 1
 		dataloader = FakeDataLoader()
 		reference_key, gen_key = ('resp', 'gen') \
 			if argument == 'default' else ('rk', 'gpk')
 		data = dataloader.get_data(reference_key=reference_key, gen_key=gen_key, \
 								   to_list=(type == 'list'), pad=(shape == 'pad'), \
-								   gen_len_flag=gen_len)
+								   gen_len_flag=gen_len, ref_len_flag=ref_len)
 		_data = data
 		if argument == 'default':
 			bcm = BleuCorpusMetric(dataloader)
@@ -343,7 +347,8 @@ class TestBleuCorpusMetric:
 				assert np.isclose(bcm.close()['bleu'], self.get_bleu(dataloader, data, reference_key, gen_key))
 		assert data == _data
 
-multi_bleu_test_parameter = zip(test_argument, test_shape, test_type, test_batch_len, test_turn_len, test_gen_len)
+multi_bleu_test_parameter = zip(test_argument, test_shape, test_type, test_batch_len, \
+								test_turn_len, test_gen_len, test_ref_len)
 
 
 class TestMultiTurnBleuCorpusMetric:
@@ -361,20 +366,21 @@ class TestMultiTurnBleuCorpusMetric:
 		print('bleu:', corpus_bleu(refs, gens, smoothing_function=SmoothingFunction().method7))
 		return corpus_bleu(refs, gens, smoothing_function=SmoothingFunction().method7)
 
-	@pytest.mark.parametrize('argument, shape, type, batch_len, turn_len, gen_len', multi_bleu_test_parameter)
-	def test_close(self, argument, shape, type, batch_len, turn_len, gen_len):
+	@pytest.mark.parametrize('argument, shape, type, batch_len, turn_len, gen_len, ref_len', multi_bleu_test_parameter)
+	def test_close(self, argument, shape, type, batch_len, turn_len, gen_len, ref_len):
 		# 'default' or 'custom'
 		# 'pad' or 'jag'
 		# 'list' or 'array'
 		# 'equal' or 'unequal'
 		# 'equal' or 'unequal'
 		# 0, 1
+		# 0, 1
 		dataloader = FakeDataLoader()
 		reference_key, gen_key = ('sent', 'gen') \
 			if argument == 'default' else ('rk', 'gpk')
 		data = dataloader.get_data(reference_key=reference_key, gen_key=gen_key, \
 								   multi_turn=True, to_list=(type == 'list'), pad=(shape == 'pad'), \
-								   gen_len_flag=gen_len, different_turn_len=(turn_len == 'unequal'))
+								   gen_len_flag=gen_len, ref_len_flag=ref_len, different_turn_len=(turn_len == 'unequal'))
 		_data = data
 		if argument == 'default':
 			mtbcm = MultiTurnBleuCorpusMetric(dataloader)
@@ -472,7 +478,7 @@ class TestMultiTurnDialogRecorder:
 		# 'equal' or 'unequal'
 		# 0, 1
 		dataloader = FakeDataLoader()
-		context_key, reference_key, gen_key = ('context', 'reference', 'gen') \
+		context_key, reference_key, gen_key = ('post', 'resp', 'gen') \
 			if argument == 'default' else ('ck', 'rk', 'gk')
 		data = dataloader.get_data(context_key=context_key, reference_key=reference_key, gen_key=gen_key, \
 								   multi_turn=True, to_list=(type == 'list'), pad=(shape == 'pad'), \
