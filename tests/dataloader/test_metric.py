@@ -10,6 +10,13 @@ from contk.metric import MetricBase, PerlplexityMetric, MultiTurnPerplexityMetri
 from nltk.translate.bleu_score import corpus_bleu, sentence_bleu, SmoothingFunction
 
 
+def test_bleu_bug():
+	ref = [[[1, 3], [3], [4]]]
+	gen = [[1]]
+	with pytest.raises(ZeroDivisionError):
+		corpus_bleu(ref, gen, smoothing_function=SmoothingFunction().method7)
+
+
 class FakeDataLoader:
 	def __init__(self):
 		self.vocab_list = ['<pad>', '<unk>', '<go>', '<eos>', 'what', 'how', 'here', 'do']
@@ -23,10 +30,19 @@ class FakeDataLoader:
 			pass
 		return lists
 
+	def trim_index(self, index):
+		print(index)
+		index = self.trim_before_target(list(index), 3)
+		idx = len(index)
+		while idx > 0 and index[idx - 1] == 0:
+			idx -= 1
+		index = index[:idx]
+		return index
+
 	def multi_turn_sen_to_index(self, session):
 		return list(map(lambda sent: list(map( \
 			lambda word: self.word2id.get(word, self.unk_id), sent)), \
-		session))
+						session))
 
 	def multi_turn_trim_index(self, index):
 		res = []
@@ -42,715 +58,825 @@ class FakeDataLoader:
 		if trim:
 			index = self.multi_turn_trim_index(index)
 		return list(map(lambda sent: \
-			list(map(lambda word: self.vocab_list[word], sent)), \
-			index))
-
-	def trim_index(self, index):
-		index = self.trim_before_target(list(index), 3)
-		idx = len(index)
-		while index[idx - 1] == 0:
-			idx -= 1
-		index = index[:idx]
-		return index
+							list(map(lambda word: self.vocab_list[word], sent)), \
+						index))
 
 	def index_to_sen(self, index, trim=True):
 		if trim:
 			index = self.trim_index(index)
 		return list(map(lambda word: self.vocab_list[word], index))
 
-	def get_data(self, reference_key, reference_len_key, gen_prob_key, gen_key, post_key, resp_key, res_key,\
-				 log_softmax = True, to_list = False, multi_turn = False):
-		data = {reference_key: [], reference_len_key: [], gen_prob_key: [],\
-				gen_key: [], post_key: [], resp_key: [], res_key: []}
-		batch = 5
-		length = 15
+	def get_sen(self, max_len, len, gen=False, pad=True):
+		sen = []
+		for i in range(len):
+			sen.append(randrange(4, self.vocab_size))
+		if not gen:
+			sen[0] = self.vocab_to_index['<go>']
+		sen[len - 1] = self.vocab_to_index['<eos>']
+		if pad:
+			for i in range(max_len - len):
+				sen.append(self.vocab_to_index['<pad>'])
+		return sen
+
+	def get_data(self, reference_key=None, reference_len_key=None, gen_prob_key=None, gen_key=None, \
+					   post_key=None, resp_key=None, context_key=None, multi_turn=False, to_list=False, \
+				 pad=True, random_check=True, full_check=True, \
+				 different_turn_len=False, \
+				 ref_len_flag=2, gen_len_flag=2, \
+				 batch=5, length=15):
+		data = { \
+			reference_key: [], \
+			reference_len_key: [], \
+			gen_prob_key: [], \
+			gen_key: [], \
+			post_key: [], \
+			resp_key: [], \
+			context_key: [], \
+		}
 		for i in range(batch):
-			single_batch = {reference_key: [], reference_len_key: [], gen_prob_key: [], \
-						   gen_key: [], post_key: [], resp_key: [], res_key: []}
-			for turn in range(5 if multi_turn else 1):
-				sen_str = []
-				sen_int = []
-				res_str = []
-				res_int = []
-				sen_prob = []
-				for j in range(length):
-					t = randrange(self.vocab_size)
-					if t == 3 or t == 2:
-						t = 5
-					sen_str.append(self.vocab_list[t])
-					sen_int.append(t)
+			single_batch = { \
+				reference_key: [], \
+				reference_len_key: [], \
+				gen_prob_key: [], \
+				gen_key: [], \
+				post_key: [], \
+				resp_key: [], \
+				context_key: [], \
+			}
+			turn_len = randrange(1, 5) if different_turn_len else 5
+			for turn in range(turn_len if multi_turn else 1):
+				ref = [[], [], [], []]
+				gen = [[]]
+				gen_prob = []
+				ref_len = int()
 
-					t = randrange(self.vocab_size)
-					if t == 3 or t == 2:
-						t = 5
-					res_str.append(self.vocab_list[t])
-					res_int.append(t)
+				for j in range(4):
+					tmp = randrange(2, length)
+					ref[j] = self.get_sen(length, tmp, pad = True)
+					if j == 0:
+						ref_len = tmp
 
+				gen[0] = self.get_sen(length, randrange(2, length), gen = True, pad = pad)
+
+				if ref_len_flag < 2:
+					ref[0] = self.get_sen(length, ref_len_flag + 2, gen = False, pad = True)
+					ref_len = ref_len_flag
+				if gen_len_flag < 2:
+					gen[0] = self.get_sen(length, gen_len_flag + 1, gen = True, pad = True)
+
+				for j in range(ref_len - 1 if not pad else length):
 					vocab_prob = []
 					for k in range(self.vocab_size):
 						vocab_prob.append(random())
 					vocab_prob /= np.sum(vocab_prob)
-					if log_softmax:
+					if random_check == True:
 						vocab_prob = np.log(vocab_prob)
-					sen_prob.append(vocab_prob)
+					gen_prob.append(vocab_prob)
 
-				sen_str[0] = '<go>'
-				sen_str[-1] = '<eos>'
-				res_str[-1] = '<eos>'
-				sen_int[0] = self.vocab_to_index['<go>']
-				sen_int[-1] = self.vocab_to_index['<eos>']
-				res_int[-1] = self.vocab_to_index['<eos>']
+				# (self, reference_key, reference_len_key, gen_prob_key, gen_key, \
+				#  post_key, resp_key, context_key, log_softmax=True, to_list=False, multi_turn=False):
 
 				if not multi_turn:
-					data[reference_key].append(sen_int)
-					data[reference_len_key].append(length)
-					data[gen_key].append(res_str)
-					data[gen_prob_key].append(sen_prob)
-					data[post_key].append(sen_int)
-					data[resp_key].append(res_int)
-					data[res_key].append(res_int)
+					if reference_key:
+						data[reference_key].append(ref[0])
+					if reference_len_key:
+						data[reference_len_key].append(ref_len)
+					if gen_prob_key:
+						data[gen_prob_key].append(gen_prob)
+					if gen_key:
+						data[gen_key].append(gen[0])
+					if post_key:
+						data[post_key].append(ref[1])
+					if resp_key:
+						data[resp_key].append(ref[2])
+					if context_key:
+						data[context_key].append(ref[3])
 				else:
-					single_batch[reference_key].append(sen_int)
-					single_batch[reference_len_key].append(length)
-					single_batch[gen_key].append(res_str)
-					single_batch[gen_prob_key].append(sen_prob)
-					single_batch[post_key].append(sen_int)
-					single_batch[resp_key].append(res_int)
-					single_batch[res_key].append(res_int)
+					if reference_key:
+						single_batch[reference_key].append(ref[0])
+					if reference_len_key:
+						single_batch[reference_len_key].append(ref_len)
+					if gen_prob_key:
+						single_batch[gen_prob_key].append(gen_prob)
+					if gen_key:
+						single_batch[gen_key].append(gen[0])
+					if post_key:
+						single_batch[post_key].append(ref[1])
+					if resp_key:
+						single_batch[resp_key].append(ref[2])
+					if context_key:
+						single_batch[context_key].append(ref[3])
 
 			if multi_turn:
 				for key in data.keys():
 					data[key].append(single_batch[key])
-
+		if full_check == False:
+			if multi_turn:
+				data[gen_prob_key][0][0][0] -= 0.5
+			else:
+				data[gen_prob_key][0][0] -= 0.5
 		if not to_list:
 			for i in data.keys():
 				data[i] = np.array(data[i])
 		return data
 
-	def get_multi_turn_data(self, reference_key, reference_len_key, gen_key, gen_prob_key):
-		# [batch, turn, length, vocab]
-		# self.vocab_list = ['<pad>', '<unk>', '<go>', '<eos>', 'what', 'how', 'here', 'do']
-		data = {}
-		data[reference_key] = [ \
-			[ \
-				[2, 3, 0, 0], \
-				[2, 4, 3, 0], \
-				[2, 5, 4, 3]
-				], \
-			[ \
-				[2, 5, 5, 5, 3, 0, 0, 0], \
-				[2, 1, 1, 5, 6, 5, 5, 3]
-				], \
-			[ \
-				[2, 4, 5, 4, 5, 4, 3], \
-				[2, 4, 4, 4, 5, 5, 3], \
-				[2, 4, 5, 6, 3, 0, 0]
-				] \
-			]
-		data[reference_len_key] = [[2, 3, 4], [5, 8], [7, 7, 5]]
-		data[gen_key] = [ \
-			[ \
-				[4, 3], \
-				[4, 3], \
-				[5, 5, 4, 3]
-				], \
-			[ \
-				[5, 5, 4, 3], \
-				[5, 5, 5, 6, 5, 3]
-				], \
-			[ \
-				[4, 4, 5, 5, 5, 3], \
-				[4, 4, 5, 5, 3], \
-				[4, 5, 6, 3]
-				] \
-			]
-		prob = []
-		for batch in data[reference_key]: # reference_key
-			batch_prob = []
-			for turn in batch:
-				sen_prob = []
-				for word in turn:
-					vocab_prob = []
-					for each in range(8):
-						vocab_prob.append(random())
-					sen_prob.append(np.log(vocab_prob / np.sum(vocab_prob)))
-				batch_prob.append(sen_prob)
-			prob.append(batch_prob)
-		data[gen_prob_key] = prob
-		return data
 
 class TestPerlplexityMetric():
-	def get_perplexity(self, input):
+	def get_perplexity(self, input, reference_key='resp', reference_len_key='resp_length', \
+					   gen_prob_key='gen_prob'):
 		length_sum = 0
 		word_loss = 0
-		for i in range(len(input['reference_key'])):
-			max_length = input['reference_len_key'][i]
+		for i in range(len(input[reference_key])):
+			max_length = input[reference_len_key][i]
 
 			length_sum += max_length - 1
 			for j in range(max_length - 1):
-				# word_loss += -(input['gen_prob_key'][i][j][ FakeDataLoader().vocab_to_index[input['reference_key'][i][j + 1]] ])
-				word_loss += -(input['gen_prob_key'][i][j][ input['reference_key'][i][j + 1] ])
+				word_loss += -(input[gen_prob_key][i][j][input[reference_key][i][j + 1]])
 		return np.exp(word_loss / length_sum)
 
 	def test_close1(self):
 		dataloader = FakeDataLoader()
-		data = dataloader.get_data('reference_key', 'reference_len_key', 'gen_prob_key',\
-								   'gen_key', 'post_key', 'resp_key', 'res_key', \
-								   True, False)
-		ans = self.get_perplexity(data)
+		data = dataloader.get_data(reference_key='resp', reference_len_key='resp_length', gen_prob_key='gen_prob', \
+								   multi_turn=False, to_list=False, \
+								   pad=True, random_check=True, full_check=True)
 
-		pm = PerlplexityMetric(dataloader, 'reference_key', 'reference_len_key', 'gen_prob_key', full_check=True)
+		pm = PerlplexityMetric(dataloader)
+		_data = data
 		pm.forward(data)
-		assert np.isclose(pm.close()['perplexity'], ans)
+
+		assert np.isclose(pm.close()['perplexity'], self.get_perplexity(data))
+		assert _data == data
 
 	def test_close2(self):
 		dataloader = FakeDataLoader()
-		data = dataloader.get_data('reference_key', 'reference_len_key', 'gen_prob_key',\
-								   'gen_key', 'post_key', 'resp_key', 'res_key', \
-								   True, False)
+		data = dataloader.get_data(reference_key='rfk', reference_len_key='rlk', gen_prob_key='gpk', \
+								   multi_turn=False, to_list=False, \
+								   pad=True, random_check=True, full_check=True)
 
-		data['reference_key'] = np.delete(data['reference_key'], 1)
+		pm = PerlplexityMetric(dataloader, 'rfk', 'rlk', 'gpk')
+		pm.forward(data)
 
-		pm = PerlplexityMetric(dataloader, 'reference_key', 'reference_len_key', 'gen_prob_key', full_check=True)
-
-		with pytest.raises(ValueError):
-			pm.forward(data)
+		assert np.isclose(pm.close()['perplexity'], self.get_perplexity(data, 'rfk', 'rlk', 'gpk'))
 
 	def test_close3(self):
 		dataloader = FakeDataLoader()
-		data = dataloader.get_data('reference_key', 'reference_len_key', 'gen_prob_key',\
-								   'gen_key', 'post_key', 'resp_key', 'res_key', \
-								   False, True)
-		ans = self.get_perplexity(data)
+		data = dataloader.get_data(reference_key='rfk', reference_len_key='rlk', gen_prob_key='gpk', \
+								   multi_turn=False, to_list=False, \
+								   pad=False, random_check=True, full_check=True, \
+								   different_turn_len=True)
 
-		pm = PerlplexityMetric(dataloader, 'reference_key', 'reference_len_key', 'gen_prob_key', full_check=True)
-		with pytest.raises(ValueError):
-			pm.forward(data)
+		pm = PerlplexityMetric(dataloader, 'rfk', 'rlk', 'gpk')
+		_data = data
+		pm.forward(data)
+
+		assert np.isclose(pm.close()['perplexity'], self.get_perplexity(data, 'rfk', 'rlk', 'gpk'))
+		assert _data == data
 
 	def test_close4(self):
 		dataloader = FakeDataLoader()
-		data = dataloader.get_data('reference_key', 'reference_len_key', 'gen_prob_key',\
-								   'gen_key', 'post_key', 'resp_key', 'res_key', \
-								   True, True)
-		ans = self.get_perplexity(data)
+		data = dataloader.get_data(reference_key='rfk', reference_len_key='rlk', gen_prob_key='gpk', \
+								   multi_turn=False, to_list=True, \
+								   pad=True, random_check=True, full_check=True)
 
-		pm = PerlplexityMetric(dataloader, 'reference_key', 'reference_len_key', 'gen_prob_key', full_check=True)
+		pm = PerlplexityMetric(dataloader, 'rfk', 'rlk', 'gpk')
+		_data = data
 		pm.forward(data)
-		assert np.isclose(pm.close()['perplexity'], ans)
 
+		assert np.isclose(pm.close()['perplexity'], self.get_perplexity(data, 'rfk', 'rlk', 'gpk'))
+		assert _data == data
 
 	def test_close5(self):
 		dataloader = FakeDataLoader()
-		data = dataloader.get_data('reference_key', 'reference_len_key', 'gen_prob_key',\
-								   'gen_key', 'post_key', 'resp_key', 'res_key', \
-								   log_softmax=False, to_list=True)
+		data = dataloader.get_data(reference_key='rfk', reference_len_key='rlk', gen_prob_key='gpk', \
+								   multi_turn=False, to_list=False, \
+								   pad=False, random_check=True, full_check=True)
 
-		pm = PerlplexityMetric(dataloader, 'reference_key', 'reference_len_key', 'gen_prob_key', full_check=True)
-		with pytest.raises(ValueError):
-			pm.forward(data)
+		pm = PerlplexityMetric(dataloader, 'rfk', 'rlk', 'gpk')
+		_data = data
+		pm.forward(data)
+
+		assert np.isclose(pm.close()['perplexity'], self.get_perplexity(data, 'rfk', 'rlk', 'gpk'))
+		assert _data == data
 
 	def test_close6(self):
 		dataloader = FakeDataLoader()
-		data = dataloader.get_data('reference_key', 'reference_len_key', 'gen_prob_key',\
-								   'gen_key', 'post_key', 'resp_key', 'res_key', \
-								   True, False)
-		data['gen_prob_key'][3][0][0] += 0.1
-		pm = PerlplexityMetric(dataloader, 'reference_key', 'reference_len_key', 'gen_prob_key', full_check=True)
+		data = dataloader.get_data(reference_key='rfk', reference_len_key='rlk', gen_prob_key='gpk', \
+								   multi_turn=False, to_list=True, \
+								   pad=False, random_check=True, full_check=True)
+		data['rfk'] = np.delete(data['rfk'], 1, 0)
+
+		pm = PerlplexityMetric(dataloader, 'rfk', 'rlk', 'gpk')
+		_data = data
 		with pytest.raises(ValueError):
 			pm.forward(data)
+		assert _data == data
+
+	def test_close7(self):
+		dataloader = FakeDataLoader()
+		data = dataloader.get_data(reference_key='rfk', reference_len_key='rlk', gen_prob_key='gpk', \
+								   multi_turn=False, to_list=True, \
+								   pad=False, random_check=True, full_check=True)
+		data['rfk'] = np.delete(data['rlk'], 1, 0)
+
+		pm = PerlplexityMetric(dataloader, 'rfk', 'rlk', 'gpk')
+		_data = data
+		with pytest.raises(ValueError):
+			pm.forward(data)
+		assert _data == data
+
+	def test_close8(self):
+		dataloader = FakeDataLoader()
+		data = dataloader.get_data(reference_key='rfk', reference_len_key='rlk', gen_prob_key='gpk', \
+								   multi_turn=False, to_list=True, \
+								   pad=False, random_check=True, full_check=True)
+		data['rfk'] = np.delete(data['gpk'], 1, 0)
+
+		_data = data
+		pm = PerlplexityMetric(dataloader, 'rfk', 'rlk', 'gpk')
+		with pytest.raises(ValueError):
+			pm.forward(data)
+		assert _data == data
+
+	def test_close9(self):
+		dataloader = FakeDataLoader()
+		data = dataloader.get_data(reference_key='rfk', reference_len_key='rlk', gen_prob_key='gpk', \
+								   multi_turn=False, to_list=True, \
+								   pad=False, random_check=False, full_check=True)
+
+		_data = data
+		pm = PerlplexityMetric(dataloader, 'rfk', 'rlk', 'gpk')
+		with pytest.raises(ValueError):
+			pm.forward(data)
+		assert _data == data
+
+	def test_close10(self):
+		dataloader = FakeDataLoader()
+		data = dataloader.get_data(reference_key='rfk', reference_len_key='rlk', gen_prob_key='gpk', \
+								   multi_turn=False, to_list=True, \
+								   pad=False, random_check=True, full_check=False)
+
+		_data = data
+		pm = PerlplexityMetric(dataloader, 'rfk', 'rlk', 'gpk', full_check=True)
+		with pytest.raises(ValueError):
+			pm.forward(data)
+		assert _data == data
+
 
 class TestMultiTurnPerplexityMetric:
-	def get_perplexity(self, input):
+	def get_perplexity(self, input, reference_key='sent', reference_len_key='sent_length', gen_prob_key='gen_prob'):
 		length_sum = 0
 		word_loss = 0
-		for turn in range(len(input['reference_key'])):
-			for i in range(len(input['reference_key'][turn])):
-				max_length = input['reference_len_key'][turn][i]
+		for turn in range(len(input[reference_key])):
+			for i in range(len(input[reference_key][turn])):
+				max_length = input[reference_len_key][turn][i]
 
 				length_sum += max_length - 1
 				for j in range(max_length - 1):
-					print (turn, i, j)
-					# word_loss += -(input['gen_prob_key'][i][j][ FakeDataLoader().vocab_to_index[input['reference_key'][i][j + 1]] ])
-					word_loss += -(input['gen_prob_key'][turn][i][j][ input['reference_key'][turn][i][j + 1] ])
+					print(turn, i, j)
+					word_loss += -(input[gen_prob_key][turn][i][j][input[reference_key][turn][i][j + 1]])
 		return np.exp(word_loss / length_sum)
 
 	def test_close1(self):
 		dataloader = FakeDataLoader()
-		data = dataloader.get_data('reference_key', 'reference_len_key', 'gen_prob_key',\
-								   'gen_key', 'post_key', 'resp_key', 'res_key', \
-								   True, False, True)
+		data = dataloader.get_data(reference_key='sent', reference_len_key='sent_length', gen_prob_key='gen_prob', \
+								   multi_turn=True, to_list=False, \
+								   pad=True, random_check=True, full_check=True)
 
-		ans = self.get_perplexity(data)
+		_data = data
+		mtpm = MultiTurnPerplexityMetric(dataloader)
+		mtpm.forward(data)
 
-		pm = MultiTurnPerplexityMetric(dataloader, 'reference_key', 'reference_len_key', 'gen_prob_key', full_check=True)
-		pm.forward(data)
-		assert np.isclose(pm.close()['perplexity'], ans)
+		assert np.isclose(mtpm.close()['perplexity'], self.get_perplexity(data))
+		assert _data == data
 
 	def test_close2(self):
 		dataloader = FakeDataLoader()
-		data = dataloader.get_data('reference_key', 'reference_len_key', 'gen_prob_key',\
-								   'gen_key', 'post_key', 'resp_key', 'res_key', \
-								   True, False, True)
+		data = dataloader.get_data(reference_key='rk', reference_len_key='rlk', gen_prob_key='gpk', \
+								   multi_turn=True, to_list=False, \
+								   pad=True, random_check=True, full_check=True)
 
-		data['reference_key'] = np.delete(data['reference_key'], 1)
+		_data = data
+		mtpm = MultiTurnPerplexityMetric(dataloader, 'rk', 'rlk', 'gpk')
+		mtpm.forward(data)
 
-		pm = MultiTurnPerplexityMetric(dataloader, 'reference_key', 'reference_len_key', 'gen_prob_key', full_check=True)
-
-		with pytest.raises(ValueError):
-			pm.forward(data)
+		assert np.isclose(mtpm.close()['perplexity'], self.get_perplexity(data, 'rk', 'rlk', 'gpk'))
+		assert _data == data
 
 	def test_close3(self):
 		dataloader = FakeDataLoader()
-		data = dataloader.get_data('reference_key', 'reference_len_key', 'gen_prob_key',\
-								   'gen_key', 'post_key', 'resp_key', 'res_key', \
-								   False, True, True)
-		ans = self.get_perplexity(data)
+		data = dataloader.get_data(reference_key='rk', reference_len_key='rlk', gen_prob_key='gpk', \
+								   multi_turn=True, to_list=False, \
+								   pad=False, random_check=True, full_check=True, different_turn_len=True)
 
-		pm = MultiTurnPerplexityMetric(dataloader, 'reference_key', 'reference_len_key', 'gen_prob_key', full_check=True)
-		with pytest.raises(ValueError):
-			pm.forward(data)
+		_data = data
+		mtpm = MultiTurnPerplexityMetric(dataloader, 'rk', 'rlk', 'gpk')
+		mtpm.forward(data)
+
+		assert np.isclose(mtpm.close()['perplexity'], self.get_perplexity(data, 'rk', 'rlk', 'gpk'))
+		assert _data == data
 
 	def test_close4(self):
 		dataloader = FakeDataLoader()
-		data = dataloader.get_data('reference_key', 'reference_len_key', 'gen_prob_key',\
-								   'gen_key', 'post_key', 'resp_key', 'res_key', \
-								   True, True, True)
-		ans = self.get_perplexity(data)
+		data = dataloader.get_data(reference_key='rk', reference_len_key='rlk', gen_prob_key='gpk', \
+								   multi_turn=True, to_list=True, \
+								   pad=False, random_check=True, full_check=True, different_turn_len=True)
 
-		pm = MultiTurnPerplexityMetric(dataloader, 'reference_key', 'reference_len_key', 'gen_prob_key', full_check=True)
-		pm.forward(data)
-		assert np.isclose(pm.close()['perplexity'], ans)
+		_data = data
+		mtpm = MultiTurnPerplexityMetric(dataloader, 'rk', 'rlk', 'gpk')
+		mtpm.forward(data)
+
+		assert np.isclose(mtpm.close()['perplexity'], self.get_perplexity(data, 'rk', 'rlk', 'gpk'))
+		assert _data == data
 
 	def test_close5(self):
 		dataloader = FakeDataLoader()
-		data = dataloader.get_multi_turn_data('reference_key', 'reference_len_key', 'gen_key', 'gen_prob_key')
+		data = dataloader.get_data(reference_key='rfk', reference_len_key='rlk', gen_prob_key='gpk', \
+								   multi_turn=True, to_list=True, \
+								   pad=False, random_check=False, full_check=True)
 
-		pm = MultiTurnPerplexityMetric(dataloader, 'reference_key', 'reference_len_key', 'gen_prob_key', full_check = True)
-		pm.forward(data)
-		ans = self.get_perplexity(data)
-		assert np.isclose(pm.close()['perplexity'], ans)
+		_data = data
+		mtpm = MultiTurnPerplexityMetric(dataloader, 'rfk', 'rlk', 'gpk')
+		with pytest.raises(ValueError):
+			mtpm.forward(data)
+		assert _data == data
+
+	def test_close6(self):
+		dataloader = FakeDataLoader()
+		data = dataloader.get_data(reference_key='rfk', reference_len_key='rlk', gen_prob_key='gpk', \
+								   multi_turn=True, to_list=True, \
+								   pad=False, random_check=True, full_check=False)
+
+		_data = data
+		mtpm = MultiTurnPerplexityMetric(dataloader, 'rfk', 'rlk', 'gpk', full_check=True)
+		with pytest.raises(ValueError):
+			mtpm.forward(data)
+		assert _data == data
+
+	def test_close7(self):
+		dataloader = FakeDataLoader()
+		data = dataloader.get_data(reference_key='rfk', reference_len_key='rlk', gen_prob_key='gpk', \
+								   multi_turn=True, to_list=True, \
+								   pad=False, random_check=True, full_check=False)
+		data['rfk'] = np.delete(data['rfk'], 1, 0)
+
+		_data = data
+		mtpm = MultiTurnPerplexityMetric(dataloader, 'rfk', 'rlk', 'gpk')
+		with pytest.raises(ValueError):
+			mtpm.forward(data)
+		assert _data == data
+
+	def test_close8(self):
+		dataloader = FakeDataLoader()
+		data = dataloader.get_data(reference_key='rfk', reference_len_key='rlk', gen_prob_key='gpk', \
+								   multi_turn=True, to_list=True, \
+								   pad=False, random_check=True, full_check=False)
+		data['rlk'] = np.delete(data['rlk'], 1, 0)
+
+		_data = data
+		mtpm = MultiTurnPerplexityMetric(dataloader, 'rfk', 'rlk', 'gpk')
+		with pytest.raises(ValueError):
+			mtpm.forward(data)
+		assert _data == data
+
+	def test_close9(self):
+		dataloader = FakeDataLoader()
+		data = dataloader.get_data(reference_key='rfk', reference_len_key='rlk', gen_prob_key='gpk', \
+								   multi_turn=True, to_list=True, \
+								   pad=False, random_check=True, full_check=False)
+		data['gpk'] = np.delete(data['gpk'], 1, 0)
+
+		_data = data
+		mtpm = MultiTurnPerplexityMetric(dataloader, 'rfk', 'rlk', 'gpk')
+		with pytest.raises(ValueError):
+			mtpm.forward(data)
+		assert _data == data
 
 class TestBleuCorpusMetric:
-	def get_bleu(self, dataloader, input):
+	def get_bleu(self, dataloader, input, reference_key, gen_key):
 		refs = []
 		gens = []
-		for gen_sen, resp_sen in zip(input['res_key'], input['reference_key']):
+		for gen_sen, resp_sen in zip(input[gen_key], input[reference_key]):
 			gen_sen_processed = dataloader.trim_index(gen_sen)
 			resp_sen_processed = dataloader.trim_index(resp_sen[1:])
 			refs.append([resp_sen_processed])
 			gens.append(gen_sen_processed)
 		print('refs:', refs)
 		print('gens:', gens)
+		print('bleu:', corpus_bleu(refs, gens, smoothing_function=SmoothingFunction().method7))
 		return corpus_bleu(refs, gens, smoothing_function=SmoothingFunction().method7)
 
 	def test_close1(self):
 		dataloader = FakeDataLoader()
-		data = dataloader.get_data('reference_key', 'reference_len_key', 'gen_prob_key',\
-								   'gen_key', 'post_key', 'resp_key', 'res_key', \
-								   True, False)
-		ans = self.get_bleu(dataloader, data)
+		data = dataloader.get_data(reference_key='resp', gen_key='gen', \
+								   multi_turn=False, to_list=False, \
+								   pad=True, random_check=True, full_check=True)
 
-		bcm = BleuCorpusMetric(dataloader, 'reference_key', 'res_key')
-		bcm.forward(data)
-		assert ans == bcm.close()['bleu']
+		_data = data
+		bm = BleuCorpusMetric(dataloader)
+		bm.forward(data)
+
+		print(self.get_bleu(dataloader, data, 'resp', 'gen'))
+		assert np.isclose(bm.close()['bleu'], self.get_bleu(dataloader, data, 'resp', 'gen'))
+		assert _data == data
 
 	def test_close2(self):
 		dataloader = FakeDataLoader()
-		data = dataloader.get_data('reference_key', 'reference_len_key', 'gen_prob_key',\
-								   'gen_key', 'post_key', 'resp_key', 'res_key', \
-								   True, False)
-		data['reference_key'] = np.delete(data['reference_key'], 1, axis=0)
+		data = dataloader.get_data(reference_key='rfk', gen_key='gk', \
+								   multi_turn=False, to_list=False, \
+								   pad=True, random_check=True, full_check=True)
 
-		bcm = BleuCorpusMetric(dataloader, 'reference_key', 'res_key')
+		_data = data
+		bm = BleuCorpusMetric(dataloader, 'rfk', 'gk')
+		bm.forward(data)
 
-		with pytest.raises(ValueError):
-			bcm.forward(data)
+		print(self.get_bleu(dataloader, data, 'rfk', 'gk'))
+		assert np.isclose(bm.close()['bleu'], self.get_bleu(dataloader, data, 'rfk', 'gk'))
+		assert _data == data
 
 	def test_close3(self):
 		dataloader = FakeDataLoader()
-		data = dataloader.get_data('reference_key', 'reference_len_key', 'gen_prob_key',\
-								   'gen_key', 'post_key', 'resp_key', 'res_key', \
-								   True, True)
-		ans = self.get_bleu(dataloader, data)
+		data = dataloader.get_data(reference_key='rfk', gen_key='gk', \
+								   multi_turn=False, to_list=True, \
+								   pad=True, random_check=True, full_check=True)
 
-		bcm = BleuCorpusMetric(dataloader, 'reference_key', 'res_key')
-		bcm.forward(data)
+		_data = data
+		bm = BleuCorpusMetric(dataloader, 'rfk', 'gk')
+		bm.forward(data)
 
-		assert bcm.close()['bleu'] == ans
+		print(self.get_bleu(dataloader, data, 'rfk', 'gk'))
+		assert np.isclose(bm.close()['bleu'], self.get_bleu(dataloader, data, 'rfk', 'gk'))
+		assert _data == data
 
 	def test_close4(self):
 		dataloader = FakeDataLoader()
+		data = dataloader.get_data(reference_key='rfk', gen_key='gk', \
+								   multi_turn=False, to_list=False, \
+								   pad=True, random_check=True, full_check=True, \
+								   gen_len_flag=0)
 
-		ref1 = ['<go>', 'what', 'how', 'here', 'do', 'what', 'here', '<eos>']
-		ref2 = ['<go>', 'how', 'here', 'what', 'do', 'how', 'here', '<eos>']
-		sen1 = ['how', 'do', 'what', 'here', '<eos>']
-		sen2 = ['do', 'what', 'how', 'here', '<eos>']
+		_data = data
+		bm = BleuCorpusMetric(dataloader, 'rfk', 'gk')
+		bm.forward(data)
 
-		sen_to_idx = (lambda x: dataloader.vocab_to_index[x])
-		map(sen_to_idx, ref1)
-		map(sen_to_idx, ref2)
-		map(sen_to_idx, sen1)
-		map(sen_to_idx, sen2)
-		data = {'reference_key': [ref1, ref2], 'res_key': [sen1, sen2]}
-
-		bcm = BleuCorpusMetric(dataloader, 'reference_key', 'res_key')
-		bcm.forward(data)
-
-		ans = self.get_bleu(dataloader, data)
-
-		assert ans > 0
-		assert ans == bcm.close()['bleu']
+		assert self.get_bleu(dataloader, data, 'rfk', 'gk') == 0
+		assert np.isclose(bm.close()['bleu'], self.get_bleu(dataloader, data, 'rfk', 'gk'))
+		assert _data == data
 
 	def test_close5(self):
 		dataloader = FakeDataLoader()
+		data = dataloader.get_data(reference_key='rfk', gen_key='gk', \
+								   multi_turn=False, to_list=False, \
+								   pad=True, random_check=True, full_check=True, \
+								   ref_len_flag=0)
 
-		ref1 = ['<go>', 'what', 'how', 'here', 'do', 'what', 'here', '<eos>']
-		ref2 = ['<go>', 'how', 'here', 'what', 'do', 'how', 'here', '<eos>']
-		sen1 = ['what', 'how', 'here', 'do', 'what', 'here', '<eos>']
-		sen2 = ['how', 'here', 'what', 'do', 'how', 'here', '<eos>']
+		_data = data
+		bm = BleuCorpusMetric(dataloader, 'rfk', 'gk')
+		bm.forward(data)
 
-		sen_to_idx = (lambda x: dataloader.vocab_to_index[x])
-		ref1 = list(map(sen_to_idx, ref1))
-		ref2 = list(map(sen_to_idx, ref2))
-		sen1 = list(map(sen_to_idx, sen1))
-		sen2 = list(map(sen_to_idx, sen2))
-		data = {'reference_key': [ref1, ref2], 'res_key': [sen1, sen2]}
+		print(self.get_bleu(dataloader, data, 'rfk', 'gk'))
+		assert self.get_bleu(dataloader, data, 'rfk', 'gk') == 0
+		assert np.isclose(bm.close()['bleu'], self.get_bleu(dataloader, data, 'rfk', 'gk'))
+		assert _data == data
 
-		bcm = BleuCorpusMetric(dataloader, 'reference_key', 'res_key')
-		bcm.forward(data)
+	def test_close6(self):
+		dataloader = FakeDataLoader()
+		data = dataloader.get_data(reference_key='rfk', gen_key='gk', \
+								   multi_turn=False, to_list=False, \
+								   pad=True, random_check=True, full_check=True, \
+								   ref_len_flag=0)
+		data['rfk'] = np.delete(data['rfk'], -1, 0)
+		_data = data
+		bm = BleuCorpusMetric(dataloader, 'rfk', 'gk')
+		with pytest.raises(ValueError):
+			bm.forward(data)
+		assert _data == data
 
-		ans = self.get_bleu(dataloader, data)
-
-		assert ans > 0
-		assert ans == bcm.close()['bleu']
 
 class TestMultiTurnBleuCorpusMetric:
-	def get_bleu(self, dataloader, input):
+	def get_bleu(self, dataloader, input, reference_key, gen_key):
 		refs = []
 		gens = []
-		for i in range(len(input['reference_key'])):
-			for resp_sen, gen_sen in zip(input['reference_key'][i], input['res_key'][i]):
+		for i in range(len(input[reference_key])):
+			for resp_sen, gen_sen in zip(input[reference_key][i], input[gen_key][i]):
 				gen_sen_processed = dataloader.trim_index(gen_sen)
 				resp_sen_processed = dataloader.trim_index(resp_sen)
 				gens.append(gen_sen_processed)
 				refs.append([resp_sen_processed[1:]])
 		print('refs:', refs)
 		print('gens:', gens)
+		print('bleu:', corpus_bleu(refs, gens, smoothing_function=SmoothingFunction().method7))
 		return corpus_bleu(refs, gens, smoothing_function=SmoothingFunction().method7)
 
 	def test_close1(self):
 		dataloader = FakeDataLoader()
-		data = dataloader.get_data('reference_key', 'reference_len_key', 'gen_prob_key',\
-								   'gen_key', 'post_key', 'resp_key', 'res_key', \
-								   True, False, True)
+		data = dataloader.get_data(reference_key='sent', gen_key='gen', \
+								   multi_turn=True, to_list=False, \
+								   pad=True, random_check=True, full_check=True)
 
-		ans = self.get_bleu(dataloader, data)
-
-		bcm = MultiTurnBleuCorpusMetric(dataloader, 'reference_key', 'res_key')
-		bcm.forward(data)
-
-		assert bcm.close()['bleu'] == ans
+		_data = data
+		mtbm = MultiTurnBleuCorpusMetric(dataloader)
+		mtbm.forward(data)
+		assert np.isclose(mtbm.close()['bleu'], self.get_bleu(dataloader, data, 'sent', 'gen'))
+		assert _data == data
 
 	def test_close2(self):
 		dataloader = FakeDataLoader()
-		data = dataloader.get_data('reference_key', 'reference_len_key', 'gen_prob_key',\
-								   'gen_key', 'post_key', 'resp_key', 'res_key', \
-								   True, False, True)
-		data['reference_key'] = np.delete(data['reference_key'], 0, axis=0)
-		bcm = MultiTurnBleuCorpusMetric(dataloader, 'reference_key', 'gen_key')
+		data = dataloader.get_data(reference_key='rfk', gen_key='gk', \
+								   multi_turn=True, to_list=False, \
+								   pad=True, random_check=True, full_check=True)
 
-		with pytest.raises(ValueError):
-			bcm.forward(data)
+		_data = data
+		mtbm = MultiTurnBleuCorpusMetric(dataloader, 'rfk', 'gk')
+		mtbm.forward(data)
+		assert np.isclose(mtbm.close()['bleu'], self.get_bleu(dataloader, data, 'rfk', 'gk'))
+		assert _data == data
 
 	def test_close3(self):
 		dataloader = FakeDataLoader()
-		data = dataloader.get_data('reference_key', 'reference_len_key', 'gen_prob_key',\
-								   'gen_key', 'post_key', 'resp_key', 'res_key', \
-								   True, True, True)
-		ans = self.get_bleu(dataloader, data)
+		data = dataloader.get_data(reference_key='rfk', gen_key='gk', \
+								   multi_turn=True, to_list=True, \
+								   pad=True, random_check=True, full_check=True)
 
-		bcm = MultiTurnBleuCorpusMetric(dataloader, 'reference_key', 'res_key')
-		bcm.forward(data)
-
-		assert bcm.close()['bleu'] == ans
+		_data = data
+		mtbm = MultiTurnBleuCorpusMetric(dataloader, 'rfk', 'gk')
+		mtbm.forward(data)
+		assert np.isclose(mtbm.close()['bleu'], self.get_bleu(dataloader, data, 'rfk', 'gk'))
+		assert _data == data
 
 	def test_close4(self):
 		dataloader = FakeDataLoader()
+		data = dataloader.get_data(reference_key='rfk', gen_key='gk', \
+								   multi_turn=True, to_list=False, \
+								   pad=True, random_check=True, full_check=True, \
+								   ref_len_flag=0)
 
-		ref1 = ['<go>', 'what', 'how', 'here', 'do', '<eos>']
-		ref2 = ['<go>', 'how', 'here', 'what', 'do', '<eos>']
-		ref3 = ['<go>', 'here', 'here', 'here', 'here', 'here', 'here', '<eos>']
-		sen1 = ['what', 'how', 'here', 'do', 'what', 'here', '<eos>']
-		sen2 = ['how', 'here', 'what', 'do', '<eos>']
-		sen3 = ['here', 'here', 'here', 'here', 'here', 'here', '<eos>']
-
-		sen_to_idx = (lambda x: dataloader.vocab_to_index[x])
-		ref1 = list(map(sen_to_idx, ref1))
-		ref2 = list(map(sen_to_idx, ref2))
-		ref3 = list(map(sen_to_idx, ref3))
-		sen1 = list(map(sen_to_idx, sen1))
-		sen2 = list(map(sen_to_idx, sen2))
-		sen3 = list(map(sen_to_idx, sen3))
-		print(ref1)
-		data = {'reference_key': [[ref1, ref2], [ref3]], 'res_key': [[sen1, sen2], [sen3]]}
-
-		bcm = MultiTurnBleuCorpusMetric(dataloader, 'reference_key', 'res_key')
-		bcm.forward(data)
-
-		ans = self.get_bleu(dataloader, data)
-
-		assert ans > 0
-		assert ans == bcm.close()['bleu']
+		_data = data
+		mtbm = MultiTurnBleuCorpusMetric(dataloader, 'rfk', 'gk')
+		mtbm.forward(data)
+		assert self.get_bleu(dataloader, data, 'rfk', 'gk') == 0
+		assert np.isclose(mtbm.close()['bleu'], self.get_bleu(dataloader, data, 'rfk', 'gk'))
+		assert _data == data
 
 	def test_close5(self):
 		dataloader = FakeDataLoader()
-		data = dataloader.get_multi_turn_data('reference_key', 'reference_len_key', 'res_key', 'gen_prob_key')
+		data = dataloader.get_data(reference_key='rfk', gen_key='gk', \
+								   multi_turn=True, to_list=False, \
+								   pad=True, random_check=True, full_check=True, \
+								   gen_len_flag=0)
 
-		bc = MultiTurnBleuCorpusMetric(dataloader, 'reference_key', 'res_key')
-		bc.forward(data)
-		ans = self.get_bleu(dataloader, data)
-		assert np.isclose(bc.close()['bleu'], ans)
-		
+		_data = data
+		mtbm = MultiTurnBleuCorpusMetric(dataloader, 'rfk', 'gk')
+		with pytest.raises(ValueError):
+			mtbm.forward(data)
+		assert _data == data
+
 	def test_close6(self):
 		dataloader = FakeDataLoader()
-		data = {}
-		# data['reference_key', 'res_key']
-		data['reference_key'] = [ \
-			[ \
-				[2, 5, 3, 0, 0], \
-				[2, 5, 5, 5, 3] \
-				], \
-			[ \
-				[2, 6, 6, 7, 3, 0, 0], \
-				[2, 7, 6, 5, 6, 7, 3], \
-				[2, 5, 3, 0, 0, 0, 0]
-				]
-			]
-		data['res_key'] = [ \
-			[ \
-				[2, 5, 3], \
-				[2, 5, 5, 3] \
-				], \
-			[ \
-				[2, 6, 6, 7, 3], \
-				[2, 5, 7, 6, 3], \
-				[2, 5, 3]
-				]
-			]
+		data = dataloader.get_data(reference_key='rfk', gen_key='gk', \
+								   multi_turn=True, to_list=False, \
+								   pad=True, random_check=True)
+		data['rfk'] = np.delete(data['rfk'], 1, 0)
 
-		bc = MultiTurnBleuCorpusMetric(dataloader, 'reference_key', 'res_key')
-		bc.forward(data)
-		ans = self.get_bleu(dataloader, data)
-		assert np.isclose(bc.close()['bleu'], ans)
+		_data = data
+		mtbm = MultiTurnBleuCorpusMetric(dataloader, 'rfk', 'gk')
+		with pytest.raises(ValueError):
+			mtbm.forward(data)
+		assert _data == data
 
 	def test_close7(self):
 		dataloader = FakeDataLoader()
-		data = {}
-		data['reference_key'] = [ \
-			[ \
-				[2, 3, 5, 0, 0], \
-				[2, 5, 5, 5, 3] \
-				], \
-			[ \
-				[2, 6, 6, 7, 3, 0, 0], \
-				[2, 7, 6, 5, 6, 7, 3], \
-				]
-			]
-		data['res_key'] = [ \
-			[ \
-				[2, 3], \
-				[2, 5, 5, 3] \
-				], \
-			[ \
-				[2, 6, 6, 7, 3], \
-				[2, 5, 7, 6, 3], \
-				[2, 5, 3]
-				]
-			]
+		data = dataloader.get_data(reference_key='rfk', gen_key='gk', \
+								   multi_turn=True, to_list=False, \
+								   pad=False, random_check=True, \
+								   different_turn_len=True)
 
-		bc = MultiTurnBleuCorpusMetric(dataloader, 'reference_key', 'res_key')
+		_data = data
+		mtbm = MultiTurnBleuCorpusMetric(dataloader, 'rfk', 'gk')
+		mtbm.forward(data)
+		assert np.isclose(mtbm.close()['bleu'], self.get_bleu(dataloader, data, 'rfk', 'gk'))
+		assert _data == data
+
+
+class TestSingleTurnDialogRecorder():
+	def get_sen_from_index(self, dataloader, data, post_key='post', resp_key='resp', gen_key='gen'):
+		ans = { \
+			'post': [], \
+			'resp': [], \
+			'gen': [], \
+			}
+		for sen in data[post_key]:
+			ans['post'].append(dataloader.index_to_sen(sen[1:]))
+			print(ans['post'][-1])
+		for sen in data[resp_key]:
+			ans['resp'].append(dataloader.index_to_sen(sen[1:]))
+			print(ans['resp'][-1])
+		for sen in data[gen_key]:
+			ans['gen'].append(dataloader.index_to_sen(sen))
+
+		return ans
+
+	def test_close1(self):
+		dataloader = FakeDataLoader()
+		data = dataloader.get_data(post_key='post', resp_key='resp', gen_key='gen', \
+								   multi_turn=False, to_list=False, \
+								   pad=True, random_check=True)
+
+		_data = data
+		sdr = SingleTurnDialogRecorder(dataloader)
+		sdr.forward(data)
+
+		assert sdr.close() == self.get_sen_from_index(dataloader, data)
+		assert _data == data
+
+	def test_close2(self):
+		dataloader = FakeDataLoader()
+		data = dataloader.get_data(post_key='pk', resp_key='rk', gen_key='gk', \
+								   multi_turn=False, to_list=False, \
+								   pad=True, random_check=True)
+
+		_data = data
+		sdr = SingleTurnDialogRecorder(dataloader, 'pk', 'rk', 'gk')
+		sdr.forward(data)
+
+		assert sdr.close() == self.get_sen_from_index(dataloader, data, 'pk', 'rk', 'gk')
+		assert _data == data
+
+	def test_close3(self):
+		dataloader = FakeDataLoader()
+		data = dataloader.get_data(post_key='pk', resp_key='rk', gen_key='gk', \
+								   multi_turn=False, to_list=False, \
+								   pad=True, random_check=True, \
+								   gen_len_flag=0)
+
+		_data = data
+		sdr = SingleTurnDialogRecorder(dataloader, 'pk', 'rk', 'gk')
+		sdr.forward(data)
+
+		assert sdr.close() == self.get_sen_from_index(dataloader, data, 'pk', 'rk', 'gk')
+		assert _data == data
+
+	def test_close4(self):
+		dataloader = FakeDataLoader()
+		data = dataloader.get_data(post_key='pk', resp_key='rk', gen_key='gk', \
+								   multi_turn=False, to_list=False, \
+								   pad=False, random_check=True)
+
+		_data = data
+		sdr = SingleTurnDialogRecorder(dataloader, 'pk', 'rk', 'gk')
+		sdr.forward(data)
+
+		assert sdr.close() == self.get_sen_from_index(dataloader, data, 'pk', 'rk', 'gk')
+		assert _data == data
+
+	def test_close5(self):
+		dataloader = FakeDataLoader()
+		data = dataloader.get_data(post_key='pk', resp_key='rk', gen_key='gk', \
+								   multi_turn=False, to_list=False, \
+								   pad=False, random_check=True)
+		data['pk'] = np.delete(data['pk'], 2, 0)
+		_data = data
+		sdr = SingleTurnDialogRecorder(dataloader, 'pk', 'rk', 'gk')
 		with pytest.raises(ValueError):
-			bc.forward(data)
+			sdr.forward(data)
+		assert _data == data
 
-	def test_close8(self):
-		refs = [[[1,2]]]
-		hyps = [[1]]
-		with pytest.raises(Exception):
-			corpus_bleu(refs, hyps, smoothing_function=SmoothingFunction().method7)
+
+class TestMultiTurnDialogRecorder:
+	def get_sen_from_index(self, dataloader, data, post_key='context', resp_key='reference', gen_key='gen'):
+		ans = { \
+			'context': [], \
+			'reference': [], \
+			'gen': [], \
+			}
+		for turn in data[post_key]:
+			ans['context'].append(dataloader.multi_turn_index_to_sen(np.array(turn)[ :, 1 :]))
+		for turn in data[resp_key]:
+			ans['reference'].append(dataloader.multi_turn_index_to_sen(np.array(turn)[ :, 1 :]))
+		for turn in data[gen_key]:
+			ans['gen'].append(dataloader.multi_turn_index_to_sen(turn))
+
+		return ans
+
+	def test_close1(self):
+		dataloader = FakeDataLoader()
+		data = dataloader.get_data(context_key='post', reference_key='resp', gen_key='gen', \
+								   multi_turn=True, pad=True)
+		_data = data
+		mdr = MultiTurnDialogRecorder(dataloader)
+		mdr.forward(data)
+
+		assert mdr.close() == self.get_sen_from_index(dataloader, data)
+		assert _data == data
+
+	def test_close2(self):
+		dataloader = FakeDataLoader()
+		data = dataloader.get_data(context_key='ck', reference_key='rk', gen_key='gk', \
+								   multi_turn=True, pad=True)
+		_data = data
+		mdr = MultiTurnDialogRecorder(dataloader, 'ck', 'rk', 'gk')
+		mdr.forward(data)
+
+		assert mdr.close() == self.get_sen_from_index(dataloader, data, 'ck', 'rk', 'gk')
+		assert _data == data
+
+	def test_close3(self):
+		dataloader = FakeDataLoader()
+		data = dataloader.get_data(context_key='ck', reference_key='rk', gen_key='gk', \
+								   multi_turn=True, pad=True, to_list=True)
+		_data = data
+		mdr = MultiTurnDialogRecorder(dataloader, 'ck', 'rk', 'gk')
+		mdr.forward(data)
+
+		assert mdr.close() == self.get_sen_from_index(dataloader, data, 'ck', 'rk', 'gk')
+		assert _data == data
+
+	def test_close4(self):
+		dataloader = FakeDataLoader()
+		data = dataloader.get_data(context_key='ck', reference_key='rk', gen_key='gk', \
+								   multi_turn=True, pad=True, to_list=True)
+		mdr = MultiTurnDialogRecorder(dataloader, 'ck', 'rk', 'gk')
+		data['ck'] = np.delete(data['ck'], 1, 0)
+		_data = data
+
+		with pytest.raises(ValueError):
+			mdr.forward(data)
+		assert _data == data
+
+	def test_close5(self):
+		dataloader = FakeDataLoader()
+		data = dataloader.get_data(context_key='ck', reference_key='rk', gen_key='gk', \
+								   multi_turn=True, pad=True, to_list=True)
+		mdr = MultiTurnDialogRecorder(dataloader, 'ck', 'rk', 'gk')
+		data['gk'] = np.delete(data['gk'], 1, 0)
+		_data = data
+
+		with pytest.raises(ValueError):
+			mdr.forward(data)
+		assert _data == data
 
 
 class TestLanguageGenerationRecorder():
-	def test_init(self):
-		sdr = LanguageGenerationRecorder(None, 'a')
-		assert sdr.gen_key == 'a'
-
-	def test_close1(self):
-		vocab_list = ['<pad>', '<unk>', '<go>', '<eos>', 'what', 'how', 'here', 'do']
-		data = {'gen': [], 'res': []}
-		batch = 5
-		length = 10
-		for i in range(batch):
-			sen = []
-			res = []
-			for j in range(length):
-				t = randrange(4, 8)
-				sen.append(t)
-				res.append(vocab_list[t])
-			sen[-1] = 3
-			res[-1] = '<eos>'
-			while res[-1] == '<eos>':
-				res.pop()
-			data['gen'].append(sen)
-			data['res'].append(res)
-
-		data['gen'] = np.array(data['gen'])
-
-		sdr = LanguageGenerationRecorder(FakeDataLoader(), 'gen')
-		sdr.forward(data)
-		assert sdr.close()['gen'] == data['res']
-
-	def test_close2(self):
-		vocab_list = ['<pad>', '<unk>', '<go>', '<eos>', 'what', 'how', 'here', 'do']
-		data = {'gen': [], 'res': []}
-		batch = 5
-		length = 10
-		for i in range(batch):
-			sen = []
-			res = []
-			for j in range(length):
-				t = randrange(4, 8)
-				sen.append(t)
-				res.append(vocab_list[t])
-			sen[-1] = 3
-			res[-1] = '<eos>'
-			while res[-1] == '<eos>':
-				res.pop()
-			data['gen'].append(sen)
-			data['res'].append(res)
-
-		sdr = LanguageGenerationRecorder(FakeDataLoader(), 'gen')
-		sdr.forward(data)
-		assert sdr.close()['gen'] == data['res']
-
-class TestSingleTurnDialogRecorder():
-	def test_close1(self):
-		vocab_list = ['<pad>', '<unk>', '<go>', '<eos>', 'what', 'how', 'here', 'do']
-		data = {'post': [], 'resp': [], 'gen': []}
-		resdata = {'post': [], 'resp': [], 'gen': []}
-		batch = 5
-		length = 10
-		for i in range(batch):
-			for key in data.keys():
-				sen = []
-				res = []
-				for j in range(length):
-					t = randrange(4, 8)
-					sen.append(t)
-					res.append(vocab_list[t])
-				if not key == 'gen':
-					res.remove(res[0])
-				data[key].append(sen)
-				resdata[key].append(res)
-
-		for key in data.keys():
-			data[key] = np.array(data[key])
-		sdr = SingleTurnDialogRecorder(FakeDataLoader(), 'post', 'resp', 'gen')
-		sdr.forward(data)
-		assert sdr.close() == resdata
-
-	def test_close2(self):
-		vocab_list = ['<pad>', '<unk>', '<go>', '<eos>', 'what', 'how', 'here', 'do']
-		data = {'post': [], 'resp': [], 'gen': []}
-		resdata = {'post': [], 'resp': [], 'gen': []}
-		batch = 5
-		length = 10
-		for i in range(batch):
-			for key in data.keys():
-				sen = []
-				res = []
-				for j in range(length):
-					t = randrange(4, 8)
-					sen.append(t)
-					res.append(vocab_list[t])
-				if not key == 'gen':
-					res.remove(res[0])
-				data[key].append(sen)
-				resdata[key].append(res)
-
-		sdr = SingleTurnDialogRecorder(FakeDataLoader(), 'post', 'resp', 'gen')
-		sdr.forward(data)
-		assert sdr.close() == resdata
-
-	def test_close3(self):
-		data = {}
-		data['post'] = [ \
-			[2, 5, 7, 6, 3, 0], \
-			[2, 5, 5, 7, 6, 3] \
-			]
-		data['resp'] = [ \
-			[2, 6, 7, 5, 5, 3], \
-			[2, 6, 6, 6, 7, 3] \
-			]
-		data['gen'] = [ \
-			[2, 5, 3], \
-			]
-		sdr = SingleTurnDialogRecorder(FakeDataLoader(), 'post', 'resp', 'gen')
-		with pytest.raises(ValueError):
-			sdr.forward(data)
-
-class TestMultiTurnDialogRecorder:
-	def multi_turn_inx_to_sen(self, sen_lists):
-		dataloader = FakeDataLoader()
-		res_list = []
-		if not isinstance(sen_lists, np.ndarray):
-			sen_lists = np.array(sen_lists)
-		for i, _ in enumerate(sen_lists):
-			if _[0][0] == dataloader.vocab_to_index['<go>']:
-				res_list.append(dataloader.multi_turn_index_to_sen(_[:, 1:]))
-			else:
-				res_list.append(dataloader.multi_turn_index_to_sen(_[:, :]))
-		return res_list
+	def get_sen_from_index(self, dataloader, data, gen_key = 'gen'):
+		ans = []
+		for sen in data[gen_key]:
+			ans.append(dataloader.index_to_sen(sen))
+			print(ans[-1])
+		return ans
 
 	def test_close1(self):
 		dataloader = FakeDataLoader()
-		dr = MultiTurnDialogRecorder(dataloader, 'post_key', 'reference_key', 'res_key')
+		data = dataloader.get_data(reference_key='sent', gen_key='gen', \
+								   multi_turn=False, to_list=False, \
+								   pad=True, random_check=True)
 
-		data = dataloader.get_data('reference_key', 'reference_len_key', 'gen_prob_key',\
-								   'gen_key', 'post_key', 'resp_key', 'res_key', \
-								   True, False, True)
+		_data = data
+		lg = LanguageGenerationRecorder(dataloader)
+		lg.forward(data)
 
-		res = {}
-		res['context'] = self.multi_turn_inx_to_sen(data['post_key'])
-		res['reference'] = self.multi_turn_inx_to_sen(data['reference_key'])
-		res['gen'] = self.multi_turn_inx_to_sen(data['res_key'])
-		dr.forward(data)
-		assert dr.close() == res
+		assert lg.close()['gen'] == self.get_sen_from_index(dataloader, data)
+		assert _data == data
 
 	def test_close2(self):
 		dataloader = FakeDataLoader()
-		dr = MultiTurnDialogRecorder(dataloader, 'post_key', 'reference_key', 'res_key')
+		data = dataloader.get_data(gen_key='gk', \
+								   multi_turn=False, to_list=False, \
+								   pad=True, random_check=True)
 
-		data = dataloader.get_data('reference_key', 'reference_len_key', 'gen_prob_key',\
-								   'gen_key', 'post_key', 'resp_key', 'res_key', \
-								   True, True, True)
+		_data = data
+		lg = LanguageGenerationRecorder(dataloader, 'gk')
+		lg.forward(data)
 
-		res = {}
-		res['context'] = self.multi_turn_inx_to_sen(data['post_key'])
-		res['reference'] = self.multi_turn_inx_to_sen(data['reference_key'])
-		res['gen'] = self.multi_turn_inx_to_sen(data['res_key'])
-		dr.forward(data)
-		assert dr.close() == res
+		assert lg.close()['gen'] == self.get_sen_from_index(dataloader, data, 'gk')
+		assert _data == data
 
 	def test_close3(self):
 		dataloader = FakeDataLoader()
-		dr = MultiTurnDialogRecorder(dataloader, 'post_key', 'reference_key', 'res_key')
+		data = dataloader.get_data(gen_key='gk', \
+								   multi_turn=False, to_list=False, \
+								   pad=True, random_check=True, \
+								   gen_len_flag=0)
 
-		data = dataloader.get_data('reference_key', 'reference_len_key', 'gen_prob_key',\
-								   'gen_key', 'post_key', 'resp_key', 'res_key', \
-								   True, False, True)
-		data['reference_key'] = np.delete(data['reference_key'], 1, 0)
-		with pytest.raises(ValueError):
-			dr.forward(data)
+		_data = data
+		lg = LanguageGenerationRecorder(dataloader, 'gk')
+		lg.forward(data)
+
+		assert lg.close()['gen'] == self.get_sen_from_index(dataloader, data, 'gk')
+		assert _data == data
+
+	def test_close4(self):
+		dataloader = FakeDataLoader()
+		data = dataloader.get_data(gen_key='gk', \
+								   multi_turn=False, to_list=False, \
+								   pad=True, random_check=True, \
+								   gen_len_flag=1)
+
+		_data = data
+		lg = LanguageGenerationRecorder(dataloader, 'gk')
+		lg.forward(data)
+
+		assert lg.close()['gen'] == self.get_sen_from_index(dataloader, data, 'gk')
+		assert _data == data
+
 
 class TestMetricChain():
 	def test_init(self):
@@ -763,15 +889,17 @@ class TestMetricChain():
 
 	def test_close1(self):
 		dataloader = FakeDataLoader()
-		data = dataloader.get_data('reference_key', 'reference_len_key', 'gen_prob_key',\
-								   'gen_key', 'post_key', 'resp_key', 'res_key', \
-								   True, False, True)
-		pm = MultiTurnPerplexityMetric(dataloader, 'reference_key', 'reference_len_key', 'gen_prob_key', full_check=True)
-		perplexity = TestMultiTurnPerplexityMetric().get_perplexity(data)
+		data = dataloader.get_data(reference_key='reference_key', reference_len_key='reference_len_key', gen_prob_key='gen_prob_key', \
+								   gen_key='gen_key', post_key='post_key', resp_key='resp_key', \
+								   multi_turn=True)
+		pm = MultiTurnPerplexityMetric(dataloader, 'reference_key', 'reference_len_key', 'gen_prob_key',
+									   full_check=True)
+		perplexity = TestMultiTurnPerplexityMetric().get_perplexity(data, 'reference_key', 'reference_len_key', 'gen_prob_key')
 
-		bcm = MultiTurnBleuCorpusMetric(dataloader, 'reference_key', 'res_key')
-		bleu = TestMultiTurnBleuCorpusMetric().get_bleu(dataloader, data)
+		bcm = MultiTurnBleuCorpusMetric(dataloader, 'reference_key', 'gen_key')
+		bleu = TestMultiTurnBleuCorpusMetric().get_bleu(dataloader, data, 'reference_key', 'gen_key')
 
+		_data = data
 		mc = MetricChain()
 		mc.add_metric(pm)
 		mc.add_metric(bcm)
@@ -780,3 +908,4 @@ class TestMetricChain():
 
 		assert np.isclose(res['perplexity'], perplexity)
 		assert np.isclose(res['bleu'], bleu)
+		assert _data == data
