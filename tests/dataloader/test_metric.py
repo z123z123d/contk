@@ -180,7 +180,7 @@ class FakeDataLoader:
 test_argument =  [ 'default',   'custom',   'custom',   'custom',   'custom',       'custom',     'custom',     'custom',     'custom',     'custom']
 test_shape =     [     'pad',      'pad',      'jag',      'pad',      'pad',          'pad',        'pad',        'pad',        'pad',        'pad']
 test_type =      [   'array',    'array',     'list',     'list',     'list',         'list',       'list',       'list',       'list',       'list']
-test_batch_len = [   'equal',    'equal',    'equal',    'eqaul',  'unequal',        'equal',      'euqal',      'euqal',      'euqal',      'euqal']
+test_batch_len = [   'equal',    'equal',    'equal',    'equal',  'unequal',        'equal',      'equal',      'equal',      'equal',      'equal']
 test_turn_len =  [   'equal',    'equal',  'unequal',    'equal',    'equal',        'equal',      'equal',      'equal',      'equal',      'equal']
 test_check =     ['no_check', 'no_check', 'no_check', 'no_check', 'no_check', 'random_check', 'full_check',   'no_check',   'no_check',   'no_check']
 test_gen_len =   [         1,          1,          1,          1,          1,              1,            1,            0,            1,            0]
