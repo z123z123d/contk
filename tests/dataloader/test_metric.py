@@ -194,6 +194,35 @@ test_ref_len =   [         1,          1,          1,          1,          1,   
 perplexity_test_parameter = zip(test_argument, test_shape, test_type, \
 							 test_batch_len, test_check)
 
+def no_array_object(A):
+	if not isinstance(A, list) or not isinstance(A, np.ndarray):
+		return True
+	else:
+		for i in A:
+			if not no_array_object(i):
+				return False
+	return True
+
+def same_data(A, B):
+	if type(A) != type(B):
+		return False
+	try:
+		if len(A) != len(B):
+			return False
+	except TypeError:
+		return A == B
+	for i, x in enumerate(A):
+		if not same_data(x, B[i]):
+			return False
+	return True
+
+def same_dict(A, B):
+	if A.keys() != B.keys():
+		return False
+	for x in A.keys():
+		if not same_data(A[x], B[x]):
+			return False
+	return True
 
 class TestPerlplexityMetric():
 	def get_perplexity(self, input, reference_key='resp', reference_len_key='resp_length', \
@@ -223,7 +252,7 @@ class TestPerlplexityMetric():
 		data = dataloader.get_data(reference_key=reference_key, reference_len_key=reference_len_key, gen_prob_key=gen_prob_key, \
 								   to_list=(type == 'list'), pad=(shape == 'pad'), \
 								   random_check=random_check, full_check=full_check)
-		_data = data
+		_data = copy.deepcopy(data)
 		if argument == 'default':
 			pm = PerlplexityMetric(dataloader, full_check=full_check)
 		else:
@@ -242,7 +271,7 @@ class TestPerlplexityMetric():
 			with pytest.raises(ValueError, \
 							   match='data\[gen_prob_key\] must be processed after log_softmax.'):
 				pm.forward(data)
-		assert data == _data
+		assert same_dict(data, _data)
 
 multi_perplexity_test_parameter = zip(test_argument, test_shape, test_type, \
 							 test_batch_len, test_turn_len, test_check)
@@ -278,7 +307,7 @@ class TestMultiTurnPerplexityMetric:
 								   to_list=(type == 'list'), pad=(shape == 'pad'), \
 								   multi_turn=True, different_turn_len=(turn_len == 'unequal'), \
 								   random_check=random_check, full_check=full_check)
-		_data = data
+		_data = copy.deepcopy(data)
 		if argument == 'default':
 			mtpm = MultiTurnPerplexityMetric(dataloader)
 		else:
@@ -298,7 +327,7 @@ class TestMultiTurnPerplexityMetric:
 			with pytest.raises(ValueError, \
 							   match='data\[gen_prob_key\] must be processed after log_softmax.'):
 				mtpm.forward(data)
-		assert data == _data
+		assert same_dict(data, _data)
 
 
 bleu_test_parameter = zip(test_argument, test_argument, test_type, test_batch_len, test_gen_len, test_ref_len)
@@ -332,7 +361,7 @@ class TestBleuCorpusMetric:
 		data = dataloader.get_data(reference_key=reference_key, gen_key=gen_key, \
 								   to_list=(type == 'list'), pad=(shape == 'pad'), \
 								   gen_len_flag=gen_len, ref_len_flag=ref_len)
-		_data = data
+		_data = copy.deepcopy(data)
 		if argument == 'default':
 			bcm = BleuCorpusMetric(dataloader)
 		else:
@@ -345,7 +374,7 @@ class TestBleuCorpusMetric:
 		else:
 				bcm.forward(data)
 				assert np.isclose(bcm.close()['bleu'], self.get_bleu(dataloader, data, reference_key, gen_key))
-		assert data == _data
+		assert same_dict(data, _data)
 
 multi_bleu_test_parameter = zip(test_argument, test_shape, test_type, test_batch_len, \
 								test_turn_len, test_gen_len, test_ref_len)
@@ -381,7 +410,7 @@ class TestMultiTurnBleuCorpusMetric:
 		data = dataloader.get_data(reference_key=reference_key, gen_key=gen_key, \
 								   multi_turn=True, to_list=(type == 'list'), pad=(shape == 'pad'), \
 								   gen_len_flag=gen_len, ref_len_flag=ref_len, different_turn_len=(turn_len == 'unequal'))
-		_data = data
+		_data = copy.deepcopy(data)
 		if argument == 'default':
 			mtbcm = MultiTurnBleuCorpusMetric(dataloader)
 		else:
@@ -397,7 +426,7 @@ class TestMultiTurnBleuCorpusMetric:
 		else:
 			mtbcm.forward(data)
 			assert np.isclose(mtbcm.close()['bleu'], self.get_bleu(dataloader, data, reference_key, gen_key))
-		assert data == _data
+		assert same_dict(data, _data)
 
 
 single_turn_dialog_recorder_test_parameter = zip(test_argument, test_shape, test_type, test_batch_len)
@@ -432,7 +461,7 @@ class TestSingleTurnDialogRecorder():
 			if argument == 'default' else ('pk', 'rk', 'gk')
 		data = dataloader.get_data(post_key=post_key, resp_key=resp_key, gen_key=gen_key, \
 								   to_list=(type == 'list'), pad=(shape == 'pad'))
-		_data = data
+		_data = copy.deepcopy(data)
 		if argument == 'default':
 			sr = SingleTurnDialogRecorder(dataloader)
 		else:
@@ -446,7 +475,7 @@ class TestSingleTurnDialogRecorder():
 			sr.forward(data)
 			assert sr.close() == self.get_sen_from_index(dataloader, data, post_key, resp_key, \
 																			gen_key)
-		assert data == _data
+		assert same_dict(data, _data)
 
 
 multi_turn_dialog_test_parameter = zip(test_argument, test_shape, test_type, \
@@ -483,7 +512,7 @@ class TestMultiTurnDialogRecorder:
 		data = dataloader.get_data(context_key=context_key, reference_key=reference_key, gen_key=gen_key, \
 								   multi_turn=True, to_list=(type == 'list'), pad=(shape == 'pad'), \
 								   gen_len_flag=gen_len)
-		_data = data
+		_data = copy.deepcopy(data)
 		if argument == 'default':
 			mtbr = MultiTurnDialogRecorder(dataloader)
 		else:
@@ -496,7 +525,7 @@ class TestMultiTurnDialogRecorder:
 		else:
 			mtbr.forward(data)
 			assert mtbr.close() == self.get_sen_from_index(dataloader, data, context_key, reference_key, gen_key)
-		assert data == _data
+		assert same_dict(data, _data)
 
 
 language_generation_test_parameter = zip(test_argument, test_shape, test_type)
@@ -521,7 +550,7 @@ class TestLanguageGenerationRecorder():
 			if argument == 'default' else 'gk'
 		data = dataloader.get_data(gen_key=gen_key, \
 								   to_list=(type == 'list'), pad=(shape == 'pad'))
-		_data = data
+		_data = copy.deepcopy(data)
 		if argument == 'default':
 			lg = LanguageGenerationRecorder(dataloader)
 		else:
@@ -529,7 +558,7 @@ class TestLanguageGenerationRecorder():
 
 		lg.forward(data)
 		assert lg.close()['gen'] == self.get_sen_from_index(dataloader, data, gen_key)
-		assert data == _data
+		assert same_dict(data, _data)
 
 class TestMetricChain():
 	def test_init(self):
@@ -552,7 +581,7 @@ class TestMetricChain():
 		bcm = MultiTurnBleuCorpusMetric(dataloader, 'reference_key', 'gen_key')
 		bleu = TestMultiTurnBleuCorpusMetric().get_bleu(dataloader, data, 'reference_key', 'gen_key')
 
-		_data = data
+		_data = copy.deepcopy(data)
 		mc = MetricChain()
 		mc.add_metric(pm)
 		mc.add_metric(bcm)
@@ -561,4 +590,4 @@ class TestMetricChain():
 
 		assert np.isclose(res['perplexity'], perplexity)
 		assert np.isclose(res['bleu'], bleu)
-		assert _data == data
+		assert same_dict(data, _data)

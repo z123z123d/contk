@@ -1,0 +1,15 @@
+============================= test session starts =============================
+platform win32 -- Python 3.6.6, pytest-4.1.1, py-1.7.0, pluggy-0.8.1
+rootdir: E:\Tsinghua\Research\contk, inifile:
+plugins: cov-2.6.1
+collected 0 items / 1 errors
+
+=================================== ERRORS ====================================
+________________ ERROR collecting tests/metric/test_metric.py _________________
+test_metric.py:527: in <module>
+    class TestLanguageGenerationRecorder():
+test_metric.py:535: in TestLanguageGenerationRecorder
+    @pytest.mark.parametrize('argument, shape, type', language_generation_test_parameter)
+E   NameError: name 'language_generation_test_parameter' is not defined
+!!!!!!!!!!!!!!!!!!! Interrupted: 1 errors during collection !!!!!!!!!!!!!!!!!!!
+=========================== 1 error in 0.84 seconds ===========================
