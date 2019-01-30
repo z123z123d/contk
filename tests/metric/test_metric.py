@@ -227,7 +227,7 @@ def same_dict(A, B):
 	return True
 
 class TestPerlplexityMetric():
-	def get_perplexity(self, input, reference_key='resp', reference_len_key='resp_length', \
+	def get_perplexity(self, input, reference_key='resp_allvocabs', reference_len_key='resp_length', \
 					   gen_prob_key='gen_prob'):
 		length_sum = 0
 		word_loss = 0
@@ -247,7 +247,7 @@ class TestPerlplexityMetric():
 		# 'equal' or 'unequal'
 		# 'random_check' or 'full_check' or 'no_check'
 		dataloader = FakeDataLoader()
-		reference_key, reference_len_key, gen_prob_key = ('resp', 'resp_length', 'gen_prob') \
+		reference_key, reference_len_key, gen_prob_key = ('resp_allvocabs', 'resp_length', 'gen_prob') \
 			if argument == 'default' else ('rpk', 'rl', 'gp')
 		random_check = check == 'random_check'
 		full_check = check == 'full_check'
@@ -281,7 +281,7 @@ multi_perplexity_test_parameter = zip(test_argument, test_shape, test_type, \
 							 test_batch_len, test_turn_len, test_check)
 
 class TestMultiTurnPerplexityMetric:
-	def get_perplexity(self, input, reference_key='sent', reference_len_key='sent_length', gen_prob_key='gen_prob'):
+	def get_perplexity(self, input, reference_key='reference_allvocabs', reference_len_key='reference_length', gen_prob_key='gen_prob'):
 		length_sum = 0
 		word_loss = 0
 		for turn in range(len(input[reference_key])):
@@ -303,7 +303,7 @@ class TestMultiTurnPerplexityMetric:
 		# 'equal' or 'unequal'
 		# 'random_check' or 'full_check' or 'no_check'
 		dataloader = FakeDataLoader()
-		reference_key, reference_len_key, gen_prob_key = ('sent', 'sent_length', 'gen_prob') \
+		reference_key, reference_len_key, gen_prob_key = ('reference_allvocabs', 'reference_length', 'gen_prob') \
 			if argument == 'default' else ('rpk', 'rl', 'gp')
 		random_check = check == 'random_check'
 		full_check = check == 'full_check'
@@ -363,7 +363,7 @@ class TestBleuCorpusMetric:
 		# 0, 1
 		# 0, 1
 		dataloader = FakeDataLoader()
-		reference_key, gen_key = ('resp', 'gen') \
+		reference_key, gen_key = ('resp_allvocabs', 'gen') \
 			if argument == 'default' else ('rk', 'gpk')
 		data = dataloader.get_data(reference_key=reference_key, gen_key=gen_key, \
 								   to_list=(type == 'list'), pad=(shape == 'pad'), \
@@ -413,7 +413,7 @@ class TestMultiTurnBleuCorpusMetric:
 		# 0, 1
 		# 0, 1
 		dataloader = FakeDataLoader()
-		reference_key, gen_key = ('sent', 'gen') \
+		reference_key, gen_key = ('sent_allvocabs', 'gen') \
 			if argument == 'default' else ('rk', 'gpk')
 		data = dataloader.get_data(reference_key=reference_key, gen_key=gen_key, \
 								   multi_turn=True, to_list=(type == 'list'), pad=(shape == 'pad'), \
@@ -442,7 +442,7 @@ single_turn_dialog_recorder_test_parameter = zip(test_argument, test_shape, test
 
 
 class TestSingleTurnDialogRecorder():
-	def get_sen_from_index(self, dataloader, data, post_key='post', resp_key='resp', gen_key='gen'):
+	def get_sen_from_index(self, dataloader, data, post_key='post_allvocabs', resp_key='resp_allvocabs', gen_key='gen'):
 		ans = { \
 			'post': [], \
 			'resp': [], \
@@ -466,7 +466,7 @@ class TestSingleTurnDialogRecorder():
 		# 'list' or 'array'
 		# 'equal' or 'unequal'
 		dataloader = FakeDataLoader()
-		post_key, resp_key, gen_key = ('post', 'resp', 'gen') \
+		post_key, resp_key, gen_key = ('post_allvocabs', 'resp_allvocabs', 'gen') \
 			if argument == 'default' else ('pk', 'rk', 'gk')
 		data = dataloader.get_data(post_key=post_key, resp_key=resp_key, gen_key=gen_key, \
 								   to_list=(type == 'list'), pad=(shape == 'pad'))
@@ -493,7 +493,7 @@ multi_turn_dialog_test_parameter = zip(test_argument, test_shape, test_type, \
 
 
 class TestMultiTurnDialogRecorder:
-	def get_sen_from_index(self, dataloader, data, post_key='context', resp_key='reference', gen_key='gen'):
+	def get_sen_from_index(self, dataloader, data, post_key='context_allvocabs', resp_key='reference_allvocabs', gen_key='gen'):
 		ans = { \
 			'context': [], \
 			'reference': [], \
@@ -517,7 +517,7 @@ class TestMultiTurnDialogRecorder:
 		# 'equal' or 'unequal'
 		# 0, 1
 		dataloader = FakeDataLoader()
-		context_key, reference_key, gen_key = ('context', 'reference', 'gen') \
+		context_key, reference_key, gen_key = ('context_allvocabs', 'reference_allvocabs', 'gen') \
 			if argument == 'default' else ('ck', 'rk', 'gk')
 		data = dataloader.get_data(context_key=context_key, reference_key=reference_key, gen_key=gen_key, \
 								   multi_turn=True, to_list=(type == 'list'), pad=(shape == 'pad'), \
