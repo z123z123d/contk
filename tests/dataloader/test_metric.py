@@ -186,6 +186,17 @@ test_check =     ['no_check', 'no_check', 'no_check', 'no_check', 'no_check', 'r
 test_gen_len =   [         1,          1,          1,          1,          1,              1,            1,            0,            1,            0]
 test_ref_len =   [         1,          1,          1,          1,          1,              1,            1,            1,            0,            0]
 
+
+
+# test_argument =  [       'custom']
+# test_shape =     [          'pad']
+# test_type =      [         'list']
+# test_batch_len = [        'unequal']
+# test_turn_len =  [        'unequal']
+# test_check =     [ 'random_check']
+# test_gen_len =   [              1]
+# test_ref_len =   [              1]
+
 ## test_batch_len: len(ref) == len(gen)?
 ## test_turn_len: len(single_batch(ref)) == len(single_batch(gen))?
 ## test_gen_len: 1 means normal, 0 means gen == empty
@@ -193,15 +204,6 @@ test_ref_len =   [         1,          1,          1,          1,          1,   
 
 perplexity_test_parameter = zip(test_argument, test_shape, test_type, \
 							 test_batch_len, test_check)
-
-def no_array_object(A):
-	if not isinstance(A, list) or not isinstance(A, np.ndarray):
-		return True
-	else:
-		for i in A:
-			if not no_array_object(i):
-				return False
-	return True
 
 def same_data(A, B):
 	if type(A) != type(B):
@@ -258,8 +260,10 @@ class TestPerlplexityMetric():
 		else:
 			pm = PerlplexityMetric(dataloader, reference_key, reference_len_key, gen_prob_key, full_check=full_check)
 
+		print(batch_len)
 		if batch_len == 'unequal':
 			data[reference_key] = np.delete(data[reference_key], 1, 0)
+			_data = copy.deepcopy(data)
 			with pytest.raises(ValueError, match='Batch num is not matched.'):
 				pm.forward(data)
 		elif check == 'no_check':
@@ -316,6 +320,7 @@ class TestMultiTurnPerplexityMetric:
 
 		if batch_len == 'unequal' or turn_len == 'unequal':
 			data[reference_key] = np.delete(data[reference_key], 1, 0)
+			_data = copy.deepcopy(data)
 			with pytest.raises(ValueError, match='Batch num is not matched.'):
 				mtpm.forward(data)
 		elif check == 'no_check':
@@ -327,6 +332,8 @@ class TestMultiTurnPerplexityMetric:
 			with pytest.raises(ValueError, \
 							   match='data\[gen_prob_key\] must be processed after log_softmax.'):
 				mtpm.forward(data)
+		print(data)
+		print(_data)
 		assert same_dict(data, _data)
 
 
@@ -369,6 +376,7 @@ class TestBleuCorpusMetric:
 
 		if batch_len == 'unequal':
 			data[reference_key] = np.delete(data[reference_key], 1, 0)
+			_data = copy.deepcopy(data)
 			with pytest.raises(ValueError, match='Batch num is not matched.'):
 				bcm.forward(data)
 		else:
@@ -418,6 +426,7 @@ class TestMultiTurnBleuCorpusMetric:
 
 		if batch_len == 'unequal':
 			data[reference_key] = np.delete(data[reference_key], 1, 0)
+			_data = copy.deepcopy(data)
 			with pytest.raises(ValueError, match='Batch num is not matched.'):
 				mtbcm.forward(data)
 		elif turn_len == 'unequal' or gen_len == 0:
@@ -469,6 +478,7 @@ class TestSingleTurnDialogRecorder():
 
 		if batch_len == 'unequal':
 			data[post_key] = np.delete(data[post_key], 1, 0)
+			_data = copy.deepcopy(data)
 			with pytest.raises(ValueError, match='Batch num is not matched.'):
 				sr.forward(data)
 		else:
@@ -520,6 +530,7 @@ class TestMultiTurnDialogRecorder:
 
 		if batch_len == 'unequal':
 			data[reference_key] = np.delete(data[reference_key], 1, 0)
+			_data = copy.deepcopy(data)
 			with pytest.raises(ValueError, match='Batch num is not matched.'):
 				mtbr.forward(data)
 		else:
@@ -590,4 +601,6 @@ class TestMetricChain():
 
 		assert np.isclose(res['perplexity'], perplexity)
 		assert np.isclose(res['bleu'], bleu)
+		print(data)
+		print(_data)
 		assert same_dict(data, _data)
