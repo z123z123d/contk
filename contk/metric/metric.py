@@ -355,9 +355,12 @@ class MultiTurnDialogRecorder(MetricBase):
 		if len(context) != len(reference) or len(context) != len(gen):
 			raise ValueError("Batch num is not matched.")
 		for i, context_sen in enumerate(context):
-			self.context_list.append(self.dataloader.multi_turn_index_to_sen(np.array(context_sen)[ :, 1:]))
-			self.reference_list.append(self.dataloader.multi_turn_index_to_sen(np.array(reference[i])[ :, 1:]))
-			self.gen_list.append(self.dataloader.multi_turn_index_to_sen(np.array(gen[i])[ :]))
+			self.context_list.append(self.dataloader.multi_turn_index_to_sen( \
+				np.array(context_sen)[ :, 1:]))
+			self.reference_list.append(self.dataloader.multi_turn_index_to_sen( \
+				np.array(reference[i])[ :, 1:]))
+			self.gen_list.append(self.dataloader.multi_turn_index_to_sen( \
+				np.array(gen[i])[ :]))
 
 	def close(self):
 		'''Return a dict which contains:
