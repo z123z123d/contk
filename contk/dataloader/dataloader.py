@@ -3,44 +3,27 @@ A module for dataloader
 '''
 import random
 from .._utils import trim_before_target
+from .._utils.metaclass import DocStringInheritor, LoadClassInterface
 
-
-class Dataloader():
+class Dataloader(LoadClassInterface, metaclass=DocStringInheritor):
 	'''Base class of Dataloader.
 	'''
 	def __init__(self):
 		pass
 
-	@classmethod
-	def get_all_subclasses(cls):
-		'''Return a generator of all subclasses.
-		'''
-		for subclass in cls.__subclasses__():
-			yield from subclass.get_all_subclasses()
-			yield subclass
-
-	@classmethod
-	def load_class(cls, class_name):
-		'''Return a subclass of `class_name`.
-
-		Arguments:
-			class_name (str): target class name.
-		'''
-		for subclass in cls.get_all_subclasses():
-			if subclass.__name__ == class_name:
-				return subclass
-		return None
-
-
 class BasicLanguageGeneration(Dataloader):
 	r"""Base class for all language generation datasets. This is an abstract class.
 
-	Arguments:
-			end_token (int): the special token that stands for end. default: `3("<eos>")`
+	Arguments:{ARGUMENTS}
+
+	Attributes:{ATTRIBUTES}
+	"""
+
+	ARGUMENTS = r"""
 			ext_vocab (list): special tokens. default: `["<pad>", "<unk>", "<go>", "<eos>"]`
 			key_name (list): name of subsets of the data. default: `["train", "dev", "test"]`
-
-	Attributes:
+	"""
+	ATTRIBUTES = r"""
 			ext_vocab (list): special tokens, be placed at beginning of `vocab_list`.
 					For example: `["<pad>", "<unk>", "<go>", "<eos>"]`
 			pad_id (int): token for padding, always equal to `0`
@@ -52,11 +35,9 @@ class BasicLanguageGeneration(Dataloader):
 					including valid vocabs and invalid vocabs.
 			word2id (dict): a dict mapping all vocab to index.
 					Maybe you want to use :meth:`sen_to_index` instead.
-			end_token (int): token for end. default: equals to `eos_id`
 	"""
 
 	def __init__(self, \
-				 end_token=None, \
 				 ext_vocab=None, \
 				 key_name=None):
 		super().__init__()
@@ -67,7 +48,6 @@ class BasicLanguageGeneration(Dataloader):
 		self.unk_id = self.ext_vocab.index("<unk>")
 		self.go_id = self.ext_vocab.index("<go>")
 		self.eos_id = self.ext_vocab.index("<eos>")
-		self.end_token = end_token or self.eos_id
 		self.key_name = key_name or ["train", "dev", "test"]
 
 		# initialize by subclass
@@ -152,7 +132,7 @@ class BasicLanguageGeneration(Dataloader):
 				len(self.index[key]) // self.batch_size[key], \
 				len(self.index[key]) % self.batch_size[key]))
 
-	def get_batch(self, key, index):
+	def get_batch(self, key, index, needhash=False):
 		'''Get a batch of specified `index`.
 
 		Arguments:
@@ -165,7 +145,7 @@ class BasicLanguageGeneration(Dataloader):
 		raise NotImplementedError( \
 			"This function should be implemented by subclasses.")
 
-	def get_next_batch(self, key, ignore_left_samples=False):
+	def get_next_batch(self, key, ignore_left_samples=False, needhash=False):
 		'''Get next batch.
 
 		Arguments:
@@ -189,7 +169,7 @@ class BasicLanguageGeneration(Dataloader):
 		if ignore_left_samples and end > len(self.index[key]):
 			return None
 		index = self.index[key][start:end]
-		res = self.get_batch(key, index)
+		res = self.get_batch(key, index, needhash=needhash)
 		self.batch_id[key] += 1
 		return res
 
@@ -221,8 +201,8 @@ class BasicLanguageGeneration(Dataloader):
 	def trim_index(self, index):
 		'''Trim index. There will be two steps:
 
-			* If there is an `<eos>` in sentences,
-			  find first `<eos>` and abondon words after it (included the `<eos>`).
+			* If there is an end token (`<eos>`) in sentences,
+			  find first end token and abondon words after it (included the end token).
 			* ignore `<pad>` s at the end of the sentence.
 
 		Arguments:
@@ -230,7 +210,6 @@ class BasicLanguageGeneration(Dataloader):
 
 		Examples:
 
-			>>> # end_token = 3 #('<eos>')
 			>>> # all_vocab_list = ["<pad>", "<unk>", "<go>", "<eos>", "I", "have",
 			>>> #	"been", "to", "Sichuan"]
 			>>> dataloader.trim_index(
@@ -239,7 +218,7 @@ class BasicLanguageGeneration(Dataloader):
 			>>> [2, 4, 5, 6, 7, 8] # <go> I have been to Sichuan
 		'''
 
-		index = trim_before_target(list(index), self.end_token)
+		index = trim_before_target(list(index), self.eos_id)
 		idx = len(index)
 		while idx > 0 and index[idx-1] == self.pad_id:
 			idx -= 1
@@ -254,7 +233,6 @@ class BasicLanguageGeneration(Dataloader):
 				trim (bool): if True, call :func:`trim_index` before convertion.
 
 		Examples:
-			>>> # end_token = 3 #('<eos>')
 			>>> # all_vocab_list = ["<pad>", "<unk>", "<go>", "<eos>", "I", "have",
 			>>> #	"been", "to", "Sichuan"]
 			>>> dataloader.index_to_sen(

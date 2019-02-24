@@ -2,18 +2,21 @@ import os
 
 import numpy as np
 import tensorflow as tf
-from contk.dataloader import LanguageGeneration, Dataloader
+from contk.dataloader import MultiTurnDialog
 from contk.wordvector import WordVector, Glove
 from utils import debug, try_cache
 
-from model import VAEModel
+from model import CVAEModel
 
 def create_model(sess, data, args, embed):
 	with tf.variable_scope(args.name):
-		model = VAEModel(data, args, embed)
+		model = CVAEModel(data, args, embed)
 		model.print_parameters()
 		latest_dir = '%s/checkpoint_latest' % args.model_dir
 		best_dir = '%s/checkpoint_best' % args.model_dir
+		for directory in [args.model_dir, latest_dir, best_dir, args.out_dir]:
+			if not os.path.exists(directory):
+				os.mkdir(directory)
 		if tf.train.get_checkpoint_state(latest_dir) and args.restore == "last":
 			print("Reading model parameters from %s" % latest_dir)
 			model.latest_saver.restore(sess, tf.train.latest_checkpoint(latest_dir))
@@ -40,7 +43,7 @@ def main(args):
 		config = tf.ConfigProto(device_count={'GPU': 0})
 		os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 
-	data_class = LanguageGeneration.load_class(args.dataset)
+	data_class = MultiTurnDialog.load_class(args.dataset)
 	wordvec_class = WordVector.load_class(args.wvclass)
 	if wordvec_class == None:
 		wordvec_class = Glove
@@ -48,13 +51,16 @@ def main(args):
 		data = try_cache(data_class, (args.datapath,), args.cache_dir)
 		vocab = data.vocab_list
 		embed = try_cache(lambda wv, ez, vl: wordvec_class(wv).load(ez, vl),
-						  (args.wvpath, args.embedding_size, vocab),
+						  (args.wvpath, args.word_embedding_size, vocab),
 						  args.cache_dir, wordvec_class.__name__)
 	else:
-		data = data_class(args.datapath)
+		data = data_class(args.datapath,
+				min_vocab_times=args.min_vocab_times,
+				max_sen_length=args.max_sen_length,
+				max_turn_length=args.max_turn_length)
 		wv = wordvec_class(args.wvpath)
 		vocab = data.vocab_list
-		embed = wv.load(args.embedding_size, vocab)
+		embed = wv.load(args.word_embedding_size, vocab)
 
 	embed = np.array(embed, dtype = np.float32)
 
@@ -63,4 +69,5 @@ def main(args):
 		if args.mode == "train":
 			model.train_process(sess, data, args)
 		else:
+			model.test_multi_ref(sess, data, embed, args)
 			model.test_process(sess, data, args)

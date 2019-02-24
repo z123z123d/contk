@@ -6,37 +6,30 @@ from itertools import chain
 
 import numpy as np
 
+from .._utils.unordered_hash import UnorderedSha256
 from .dataloader import BasicLanguageGeneration
-from ..metric import MetricChain, PerlplexityMetric, BleuCorpusMetric, SingleTurnDialogRecorder
+from ..metric import MetricChain, PerlplexityMetric, BleuCorpusMetric, SingleTurnDialogRecorder, \
+			HashValueRecorder
 
 # pylint: disable=W0223
 class SingleTurnDialog(BasicLanguageGeneration):
 	r"""Base class for single-turn dialog datasets. This is an abstract class.
 
-	Arguments:
-			end_token (int): the special token that stands for end. default: `3("<eos>")`
-			ext_vocab (list): special tokens. default: `["<pad>", "<unk>", "<go>", "<eos>"]`
-			key_name (list): name of subsets of the data. default: `["train", "dev", "test"]`
+	Arguments:{ARGUMENTS}
 
-	Attributes:
-			ext_vocab (list): special tokens, be placed at beginning of `vocab_list`.
-					For example: `["<pad>", "<unk>", "<go>", "<eos>"]`
-			pad_id (int): token for padding, always equal to `0`
-			unk_id (int): token for unknown words, always equal to `1`
-			go_id (int): token at the beginning of sentences, always equal to `2`
-			eos_id (int): token at the end of sentences, always equal to `3`
-			key_name (list): name of subsets of the data. For example: `["train", "dev", "test"]`
-			all_vocab_list (list): vocabulary list of the datasets.
-			word2id (dict): a dict mapping tokens to index.
-					Maybe you want to use :meth:`sen_to_index` instead.
-			end_token (int): token for end. default: equals to `eos_id`
+	Attributes:{ATTRIBUTES}
 	"""
 
-	def get_batch(self, key, index):
+	ARGUMENTS = BasicLanguageGeneration.ARGUMENTS
+	ATTRIBUTES = BasicLanguageGeneration.ATTRIBUTES
+
+	def get_batch(self, key, index, needhash=False):
 		'''Get a batch of specified `index`.
 		Arguments:
 			key (str): must be contained in `key_name`
 			index (list): a list of specified index
+			needhash (bool): whether to return a hashvalue \
+				representing this batch of data. Default: False.
 
 		Returns:
 			(dict): A dict at least contains:
@@ -57,6 +50,7 @@ class SingleTurnDialog(BasicLanguageGeneration):
 			* resp_allvocabs (:class:`numpy.array`): A 2-d padding array containing id of words in responses.
 			  Provide both valid and invalid vocabs.
 			  Size: `[batch_size, max(sent_length)]`
+			* hashvalue(bytes): (If `needhash` is True.) A bytes representing hash value of the data.
 
 		Examples:
 			>>> # vocab_list = ["<pad>", "<unk>", "<go>", "<eos>", "how", "are", "you",
@@ -93,6 +87,15 @@ class SingleTurnDialog(BasicLanguageGeneration):
 			res_post[i, :len(post)] = post
 			res_resp[i, :len(resp)] = resp
 
+		if needhash:
+			unordered_hash = UnorderedSha256()
+			for j in index:
+				unordered_hash.update_data(repr((\
+					self.data[key]['post'][j], \
+					self.data[key]['resp'][j], \
+					self.valid_vocab_len)).encode())
+			res["hashvalue"] = unordered_hash.digest()
+
 		res["post_allvocabs"] = res_post.copy()
 		res["resp_allvocabs"] = res_resp.copy()
 		res_post[res_post >= self.valid_vocab_len] = self.unk_id
@@ -109,7 +112,10 @@ class SingleTurnDialog(BasicLanguageGeneration):
 		Arguments:
 			gen_prob_key (str): default: `gen_prob`. Refer to :class:`.metric.PerlplexityMetric`
 		'''
-		return PerlplexityMetric(self, gen_log_prob_key=gen_log_prob_key)
+		metric = MetricChain()
+		metric.add_metric(HashValueRecorder(hash_key="teacher_forcing_hashvalue"))
+		metric.add_metric(PerlplexityMetric(self, gen_log_prob_key=gen_log_prob_key))
+		return metric
 
 	def get_inference_metric(self, gen_key="gen"):
 		'''Get metric for inference.
@@ -124,6 +130,7 @@ class SingleTurnDialog(BasicLanguageGeneration):
 			               :class:`.metric.SingleDialogRecorder`
 		'''
 		metric = MetricChain()
+		metric.add_metric(HashValueRecorder(hash_key="inference_hashvalue"))
 		metric.add_metric(BleuCorpusMetric(self, gen_key=gen_key))
 		metric.add_metric(SingleTurnDialogRecorder(self, gen_key=gen_key))
 		return metric

@@ -2,7 +2,9 @@ Data Loader
 ===================================
 .. automodule:: contk.dataloader
 .. autoclass:: Dataloader
-    :members:
+
+    .. automethod:: get_all_subclasses
+    .. automethod:: load_class
 
 LanguageGeneration
 -----------------------------------
@@ -79,3 +81,8 @@ UbuntuCorpus
     :members:
     :private-members:
 
+SwitchBoardCorpus
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.. autoclass:: SwitchboardCorpus
+    :members:
+    :private-members:

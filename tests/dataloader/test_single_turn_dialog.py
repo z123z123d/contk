@@ -4,7 +4,13 @@ import pytest
 from pytest_mock import mocker
 
 from contk.dataloader import SingleTurnDialog, OpenSubtitles
-from contk.metric import MetricBase
+from contk.metric import MetricBase, HashValueRecorder
+
+def setup_module():
+	import random
+	random.seed(0)
+	import numpy as np
+	np.random.seed(0)
 
 class TestSingleTurnDialog():
 	def base_test_init(self, dl):
@@ -12,7 +18,6 @@ class TestSingleTurnDialog():
 		assert isinstance(dl.ext_vocab, list)
 		assert dl.ext_vocab[:4] == ["<pad>", "<unk>", "<go>", "<eos>"]
 		assert [dl.pad_id, dl.unk_id, dl.go_id, dl.eos_id] == [0, 1, 2, 3]
-		assert dl.eos_id == dl.end_token
 		assert isinstance(dl.key_name, list)
 		assert dl.key_name
 		for word in dl.key_name:
@@ -81,7 +86,7 @@ class TestSingleTurnDialog():
 			for sent, length in [("post", "post_length"), ("resp", "resp_length")]:
 				for idx in [0, 1]:
 					if batch[length][idx] < batch[sent].shape[1]:
-						assert batch[sent][idx][batch[length][idx]-1] == dl.end_token
+						assert batch[sent][idx][batch[length][idx]-1] == dl.eos_id
 					assert batch[sent][idx][0] == dl.go_id
 
 		# this is true, only when there is no unknown words in dl
@@ -177,6 +182,29 @@ class TestSingleTurnDialog():
 	def base_test_multi_runs(self, dl_list):
 		assert all(x.vocab_list == dl_list[0].vocab_list for x in dl_list)
 
+	def base_test_hash(self, dl):
+		recorder1 = HashValueRecorder()
+		recorder2 = HashValueRecorder()
+		
+		for key in dl.key_name:
+			dl.restart(key, 7)
+			recorder1 = HashValueRecorder()
+			while True:
+				batch = dl.get_next_batch(key, needhash=True)
+				if not batch:
+					break
+				recorder1.forward(batch)
+
+			dl.restart(key, 7)
+			recorder2 = HashValueRecorder()
+			while True:
+				batch = dl.get_next_batch(key, needhash=True)
+				if not batch:
+					break
+				recorder2.forward(batch)
+
+			assert recorder1.close()['hashvalue'] == recorder2.close()['hashvalue'] 
+
 @pytest.fixture
 def load_opensubtitles():
 	def _load_opensubtitles(invalid_vocab_times=0):
@@ -213,3 +241,7 @@ class TestOpenSubtitles(TestSingleTurnDialog):
 
 	def test_init_multi_runs(self, load_opensubtitles):
 		super().base_test_multi_runs([load_opensubtitles() for i in range(3)])
+
+	@pytest.mark.dependency(depends=["TestOpenSubtitles::test_init"])
+	def test_hash(self, load_opensubtitles):
+		super().base_test_hash(load_opensubtitles())

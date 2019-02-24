@@ -2,16 +2,21 @@ import copy
 from itertools import chain
 import pytest
 
-from contk.dataloader import MultiTurnDialog, UbuntuCorpus
-from contk.metric import MetricBase
+from contk.dataloader import MultiTurnDialog, UbuntuCorpus, SwitchboardCorpus
+from contk.metric import MetricBase, HashValueRecorder
+
+def setup_module():
+	import random
+	random.seed(0)
+	import numpy as np
+	np.random.seed(0)
 
 class TestMultiTurnDialog():
 	def base_test_init(self, dl):
 		assert isinstance(dl, MultiTurnDialog)
 		assert isinstance(dl.ext_vocab, list)
-		assert dl.ext_vocab[:5] == ["<pad>", "<unk>", "<go>", "<eos>", "<eot>"]
-		assert [dl.pad_id, dl.unk_id, dl.go_id, dl.eos_id, dl.eot_id] == [0, 1, 2, 3, 4]
-		assert dl.eot_id == dl.end_token
+		assert dl.ext_vocab[:5] == ["<pad>", "<unk>", "<go>", "<eos>"]
+		assert [dl.pad_id, dl.unk_id, dl.go_id, dl.eos_id] == [0, 1, 2, 3]
 		assert isinstance(dl.key_name, list)
 		assert dl.key_name
 		for word in dl.key_name:
@@ -26,14 +31,14 @@ class TestMultiTurnDialog():
 			assert dl.word2id[word] == i
 		assert dl.all_vocab_size == len(dl.all_vocab_list)
 		assert isinstance(dl.data, dict)
-		assert len(dl.data) == 3
+		assert len(dl.data) >= 3
 		for key in dl.key_name:
 			assert isinstance(dl.data[key], dict)
 			assert isinstance(dl.data[key]['session'], list)
 			assert isinstance(dl.data[key]['session'][0], list)
 			content = dl.data[key]['session'][0][0]
 			assert content[0] == dl.go_id
-			assert content[-1] == dl.eot_id
+			assert content[-1] == dl.eos_id
 
 		# assert the data has valid token
 		assert dl.vocab_size > 5
@@ -81,7 +86,7 @@ class TestMultiTurnDialog():
 			for idx in [0, 1]:
 				for turn in range(batch['turn_length'][idx]):
 					if batch['sent_length'][idx][turn] < batch['sent'].shape[2]:
-						assert batch['sent'][idx][turn][batch['sent_length'][idx][turn]-1] == dl.end_token
+						assert batch['sent'][idx][turn][batch['sent_length'][idx][turn]-1] == dl.eos_id
 					assert batch['sent'][idx][turn][0] == dl.go_id
 
 		# this is true, only when there is no unknown words in dl
@@ -150,19 +155,19 @@ class TestMultiTurnDialog():
 		assert [1] == dl.sen_to_index(sent)
 		assert [dl.vocab_size] == dl.sen_to_index(sent, invalid_vocab=True)
 
-		sent_id = [0, 1, 2, 3, 0, 4, 1, 0, 0]
-		sent = ["<pad>", "<unk>", "<go>", "<eos>", "<pad>", "<eot>", "<unk>", "<pad>", "<pad>"]
+		sent_id = [0, 1, 2, 3, 0, 1, 0, 0]
+		sent = ["<pad>", "<unk>", "<go>", "<eos>", "<pad>", "<unk>", "<pad>", "<pad>"]
 		assert sent == dl.index_to_sen(sent_id, trim=False)
-		sent = ["<pad>", "<unk>", "<go>", "<eos>"]
+		sent = ["<pad>", "<unk>", "<go>"]
 		assert sent == dl.index_to_sen(sent_id)
 
-		sent_id = [0, 0, 4]
-		sent = ["<pad>", "<pad>", "<eot>"]
+		sent_id = [0, 0, 3]
+		sent = ["<pad>", "<pad>", "<eos>"]
 		assert sent == dl.index_to_sen(sent_id, trim=False)
 		assert not dl.index_to_sen(sent_id)
 
-		sent_id = [4, 4, 4]
-		sent = ["<eot>", "<eot>", "<eot>"]
+		sent_id = [3, 3, 3]
+		sent = ["<eos>", "<eos>", "<eos>"]
 		assert sent == dl.index_to_sen(sent_id, trim=False)
 		assert not dl.index_to_sen(sent_id)
 
@@ -177,17 +182,17 @@ class TestMultiTurnDialog():
 		assert sent == dl.multi_turn_index_to_sen(sent_id)
 		assert sent_id == dl.multi_turn_sen_to_index(sent)
 
-		sent = [["<unk>", "<go>", "<pad>", "<unkownword>", "<pad>", "<go>"], ["<eos>", "<eot>"]]
-		sent_id = [[1, 2, 0, 1, 0, 2], [3, 4]]
+		sent = [["<unk>", "<go>", "<pad>", "<unkownword>", "<pad>", "<go>"], ["<go>", "<eos>"]]
+		sent_id = [[1, 2, 0, 1, 0, 2], [2, 3]]
 		assert sent_id == dl.multi_turn_sen_to_index(sent)
 
-		sent_id = [[0, 1, 2, 3, 0, 4, 1, 0, 0], [0, 4, 2], [1, 2, 3, 0], [1, 2, 3, 4]]
-		sent = [["<pad>", "<unk>", "<go>", "<eos>", "<pad>", "<eot>", "<unk>", "<pad>", "<pad>"], \
-				["<pad>", "<eot>", "<go>"], \
-				["<unk>", "<go>", "<eos>", "<pad>"], \
-				["<unk>", "<go>", "<eos>", "<eot>"]]
+		sent_id = [[0, 1, 2, 2, 0, 3, 1, 0, 0], [0, 3, 2], [1, 2, 2, 0], [1, 2, 2, 3]]
+		sent = [["<pad>", "<unk>", "<go>", "<go>", "<pad>", "<eos>", "<unk>", "<pad>", "<pad>"], \
+				["<pad>", "<eos>", "<go>"], \
+				["<unk>", "<go>", "<go>", "<pad>"], \
+				["<unk>", "<go>", "<go>", "<eos>"]]
 		assert sent == dl.multi_turn_index_to_sen(sent_id, trim=False)
-		sent = [["<pad>", "<unk>", "<go>", "<eos>"]]
+		sent = [["<pad>", "<unk>", "<go>", "<go>"]]
 		assert sent == dl.multi_turn_index_to_sen(sent_id)
 
 		sent = [[dl.all_vocab_list[dl.vocab_size]]]
@@ -202,6 +207,29 @@ class TestMultiTurnDialog():
 
 	def base_test_multi_runs(self, dl_list):
 		assert all(x.vocab_list == dl_list[0].vocab_list for x in dl_list)
+
+	def base_test_hash(self, dl):
+		recorder1 = HashValueRecorder()
+		recorder2 = HashValueRecorder()
+		
+		for key in dl.key_name:
+			dl.restart(key, 7)
+			recorder1 = HashValueRecorder()
+			while True:
+				batch = dl.get_next_batch(key, needhash=True)
+				if not batch:
+					break
+				recorder1.forward(batch)
+
+			dl.restart(key, 7)
+			recorder2 = HashValueRecorder()
+			while True:
+				batch = dl.get_next_batch(key, needhash=True)
+				if not batch:
+					break
+				recorder2.forward(batch)
+
+			assert recorder1.close()['hashvalue'] == recorder2.close()['hashvalue'] 
 
 @pytest.fixture
 def load_ubuntucorpus():
@@ -241,3 +269,51 @@ class TestUbuntuCorpus(TestMultiTurnDialog):
 
 	def test_init_multi_runs(self, load_ubuntucorpus):
 		super().base_test_multi_runs([load_ubuntucorpus() for i in range(3)])
+
+	@pytest.mark.dependency(depends=["TestUbuntuCorpus::test_init"])
+	def test_hash(self, load_ubuntucorpus):
+		super().base_test_hash(load_ubuntucorpus())
+
+@pytest.fixture
+def load_switchboardcorpus():
+	def _load_switchboardcorpus(invalid_vocab_times=0):
+		return SwitchboardCorpus("./tests/dataloader/dummy_switchboardcorpus", invalid_vocab_times=invalid_vocab_times)
+	return _load_switchboardcorpus
+
+class TestSwitchboardCorpus(TestMultiTurnDialog):
+
+	@pytest.mark.dependency()
+	def test_init(self, load_switchboardcorpus):
+		super().base_test_init(load_switchboardcorpus())
+
+	def test_restart(self, load_switchboardcorpus):
+		super().base_test_restart(load_switchboardcorpus())
+
+	@pytest.mark.dependency(depends=["TestSwitchboardCorpus::test_init"])
+	def test_get_batch(self, load_switchboardcorpus):
+		super().base_test_get_batch(load_switchboardcorpus())
+
+	@pytest.mark.dependency(depends=["TestSwitchboardCorpus::test_init"])
+	def test_get_next_batch(self, load_switchboardcorpus):
+		super().base_test_get_next_batch(load_switchboardcorpus())
+
+	@pytest.mark.dependency(depends=["TestSwitchboardCorpus::test_init"])
+	def test_convert(self, load_switchboardcorpus):
+		super().base_test_convert(load_switchboardcorpus())
+
+	def test_multi_turn_convert(self, load_switchboardcorpus):
+		super().base_test_multi_turn_convert(load_switchboardcorpus())
+
+	def test_teacher_forcing_metric(self, load_switchboardcorpus):
+		super().base_test_teacher_forcing_metric(load_switchboardcorpus())
+
+	def test_teacher_inference_metric(self, load_switchboardcorpus):
+		super().base_test_teacher_inference_metric(load_switchboardcorpus())
+
+	def test_init_multi_runs(self, load_switchboardcorpus):
+		super().base_test_multi_runs([load_switchboardcorpus() for i in range(3)])
+
+	@pytest.mark.skip()
+	@pytest.mark.dependency(depends=["TestSwitchboardCorpus::test_init"])
+	def test_hash(self, load_switchboardcorpus):
+		super().base_test_hash(load_switchboardcorpus())

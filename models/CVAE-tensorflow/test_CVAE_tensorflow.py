@@ -53,12 +53,12 @@ def modify_args(args):
 	args.model_dir = cwd + '/model_test'
 	args.cache_dir = cwd + '/cache_test'
 
-	args.name = 'test_seq2seq_tensorflow'
+	args.name = 'test_CVAE_tensorflow'
 	args.wvclass = 'Glove'
 	args.epochs = 1
 	args.batch_per_epoch = 5
 	args.batch_size = 5
-	args.datapath = path + '/tests/dataloader/dummy_opensubtitles'
+	args.datapath = path + '/tests/dataloader/dummy_switchboardcorpus'
 
 def test_train(mocker):
 	def side_effect_train(args):
