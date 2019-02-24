@@ -74,7 +74,7 @@ class LanguageGeneration(BasicLanguageGeneration):
 		if needhash:
 			unordered_hash = UnorderedSha256()
 			for j in index:
-				unordered_hash.update_data(repr((self.data[key]['sen'][j], self.valid_vocab_len)).encode())
+				unordered_hash.update_data(repr((self.data[key]['sent'][j], self.valid_vocab_len)).encode())
 			res["hashvalue"] = unordered_hash.digest()
 			# hashvalue must be unique for representing the whole batch
 
@@ -95,7 +95,7 @@ class LanguageGeneration(BasicLanguageGeneration):
 		metric = MetricChain()
 		metric.add_metric(HashValueRecorder(hash_key="teacher_forcing_hashvalue"))
 		metric.add_metric(PerlplexityMetric(self, \
-					reference_key='sent_allvocabs', \
+					reference_allvocabs_key='sent_allvocabs', \
 					reference_len_key='sent_length', \
 					gen_log_prob_key=gen_log_prob_key))
 		return metric

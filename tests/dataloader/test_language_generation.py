@@ -77,10 +77,10 @@ class TestLanguageGeneration():
 			assert len(batch["sent_length"]) == 2
 			assert batch["sent"].shape[0] == 2
 			if batch["sent_length"][0] < batch['sent'].shape[1]:
-				assert batch["sent"][0][batch["sent_length"][0]-1] == dl.end_token
+				assert batch["sent"][0][batch["sent_length"][0]-1] == dl.eos_id
 			assert batch["sent"][0][0] == dl.go_id
 			if batch["sent_length"][1] < batch['sent'].shape[1]:
-				assert batch["sent"][1][batch["sent_length"][1]-1] == dl.end_token
+				assert batch["sent"][1][batch["sent_length"][1]-1] == dl.eos_id
 			assert batch["sent"][1][0] == dl.go_id
 
 		# this is true, only when there is no unknown words in dl

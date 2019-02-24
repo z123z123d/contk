@@ -28,6 +28,7 @@ class FakeDataLoader(BasicLanguageGeneration):
 		self.valid_vocab_len = 8
 		self.vocab_to_index = {x: i for i, x in enumerate(self.vocab_list)}
 		self.eos_id = 3
+		self.unk_id = 1
 		self.pad_id = 0
 
 	def get_sen(self, max_len, len, gen=False, pad=True, end_token="<eos>"):
@@ -102,6 +103,7 @@ class FakeMultiDataloader(MultiTurnDialog):
 		self.valid_vocab_len = 8
 		self.vocab_to_index = {x: i for i, x in enumerate(self.vocab_list)}
 		self.eos_id = 4
+		self.unk_id = 1
 		self.pad_id = 0
 
 	def get_sen(self, max_len, len, gen=False, pad=True):
