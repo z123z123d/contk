@@ -181,8 +181,8 @@ class Seq2seq(BaseModel):
 			with torch.no_grad():
 				self.net.detail_forward(incoming)
 			data = incoming.data
-			data.resp = incoming.data.resp_allvocabs.detach().cpu().numpy().transpose(1, 0)
-			data.post = incoming.data.post_allvocabs.detach().cpu().numpy().transpose(1, 0)
+			data.resp = incoming.data.resp_allvocabs
+			data.post = incoming.data.post_allvocabs
 			data.gen = incoming.gen.w_o.detach().cpu().numpy().transpose(1, 0)
 			metric2.forward(data)
 		res.update(metric2.close())

@@ -39,7 +39,7 @@ class SingleTurnDialog(BasicLanguageGeneration):
 			* post (:class:`numpy.array`): A 2-d padding array containing id of words in posts.
 			  Only provide valid words. `unk_id` will be used if a word is not valid.
 			  Size: `[batch_size, max(sent_length)]`
-			* post_allvlcabs (:class:`numpy.array`): A 2-d padding array containing id of words in posts.
+			* post_allvocabs (:class:`numpy.array`): A 2-d padding array containing id of words in posts.
 			  Provide both valid and invalid vocabs.
 			  Size: `[batch_size, max(sent_length)]`
 			* resp_length (list): A 1-d list, the length of response in each batch.

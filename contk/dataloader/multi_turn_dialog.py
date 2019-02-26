@@ -115,7 +115,7 @@ class MultiTurnDialog(BasicLanguageGeneration):
 			turn_trim = self.trim_index(turn_index)
 			if turn_trim and ignore_first_token:
 				turn_trim = turn_trim[1:]
-			if turn_length is None and ((not turn_trim) or len(turn_trim) == 0):
+			if turn_length is None and (not turn_trim):
 				break
 			res.append(turn_trim)
 		return res
