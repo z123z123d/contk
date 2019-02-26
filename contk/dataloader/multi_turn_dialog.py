@@ -108,22 +108,16 @@ class MultiTurnDialog(BasicLanguageGeneration):
 		Todo:
 			* fix the missing example
 		'''
-		print('-----------')
-		print('before:', index)
 		res = []
 		for i, turn_index in enumerate(index):
 			if turn_length and i >= turn_length:
 				break
 			turn_trim = self.trim_index(turn_index)
-			if turn_length is None and not turn_trim:
-				break
-			elif ignore_first_token:
+			if turn_trim and ignore_first_token:
 				turn_trim = turn_trim[1:]
-			if len(turn_trim) == 0:
+			if turn_length is None and ((not turn_trim) or len(turn_trim) == 0):
 				break
 			res.append(turn_trim)
-		print('after:', res)
-		print('-----------')
 		return res
 
 	def multi_turn_sen_to_index(self, session, invalid_vocab=False):

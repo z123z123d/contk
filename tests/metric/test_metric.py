@@ -793,37 +793,41 @@ class TestMultiTurnDialogRecorder:
 	def check(self, ans, dataloader, data, context_key='context_allvocabs', \
 			  resp_key='reference_allvocabs', gen_key='gen', turn_length='turn_length'):
 		_ans = {'context': [], 'reference': [], 'gen': []}
-		for context_turn in data[context_key]:
+		for i, context_turn in enumerate(data[context_key]):
 			context_now = []
-			for context in context_turn:
+			for j, context in enumerate(context_turn):
 				t = dataloader.trim_index(context[1:])
-				if len(t):
-					context_now.append(t)
-				else:
+				if len(t) == 0:
 					break
+				context_now.append(t)
 			_ans['context'].append(context_now)
 
-		for resp_turn in data[resp_key]:
+		for i, resp_turn in enumerate(data[resp_key]):
 			resp_now = []
-			for resp in resp_turn:
+			for j, resp in enumerate(resp_turn):
 				t = dataloader.trim_index(resp[1:])
-				if len(t):
-					resp_now.append(t)
-				else:
+				if data['turn_length'] is None:
+					if len(t) == 0:
+						break
+				elif j >= data[turn_length][i]:
 					break
+				resp_now.append(t)
 			_ans['reference'].append(resp_now)
 
-		for gen_turn in data[gen_key]:
+		for i, gen_turn in enumerate(data[gen_key]):
 			gen_now = []
-			for gen in gen_turn:
+			for j, gen in enumerate(gen_turn):
 				t = dataloader.trim_index(gen)
-				if len(t):
-					gen_now.append(t)
-				else:
+				if data['turn_length'] is None:
+					if len(t) == 0:
+						break
+				elif j >= data[turn_length][i]:
 					break
+				gen_now.append(t)
 			_ans['gen'].append(gen_now)
 
 		print('_ans[\'context\']: ', _ans['context'])
+		print('ans[\'context\']: ', ans['context'])
 		assert len(ans['context']) == len(_ans['context'])
 		assert len(ans['reference']) == len(_ans['reference'])
 		assert len(ans['gen']) == len(_ans['gen'])
