@@ -6,7 +6,7 @@ import numpy as np
 
 from .._utils.unordered_hash import UnorderedSha256
 from .dataloader import BasicLanguageGeneration
-from ..metric import MetricChain, PerlplexityMetric, LanguageGenerationRecorder, \
+from ..metric import MetricChain, PerplexityMetric, LanguageGenerationRecorder, \
 	HashValueRecorder
 
 # pylint: disable=W0223
@@ -87,14 +87,14 @@ class LanguageGeneration(BasicLanguageGeneration):
 
 		It contains:
 
-		* :class:`.metric.PerlplexityMetric`
+		* :class:`.metric.PerplexityMetric`
 
 		Arguments:
-				gen_prob_key (str): default: `gen_prob`. Refer to :class:`.metric.PerlplexityMetric`
+				gen_prob_key (str): default: `gen_prob`. Refer to :class:`.metric.PerplexityMetric`
 		'''
 		metric = MetricChain()
 		metric.add_metric(HashValueRecorder(hash_key="teacher_forcing_hashvalue"))
-		metric.add_metric(PerlplexityMetric(self, \
+		metric.add_metric(PerplexityMetric(self, \
 					reference_allvocabs_key='sent_allvocabs', \
 					reference_len_key='sent_length', \
 					gen_log_prob_key=gen_log_prob_key))

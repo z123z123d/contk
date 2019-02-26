@@ -8,7 +8,7 @@ import numpy as np
 
 from .._utils.unordered_hash import UnorderedSha256
 from .dataloader import BasicLanguageGeneration
-from ..metric import MetricChain, PerlplexityMetric, BleuCorpusMetric, SingleTurnDialogRecorder, \
+from ..metric import MetricChain, PerplexityMetric, BleuCorpusMetric, SingleTurnDialogRecorder, \
 			HashValueRecorder
 
 # pylint: disable=W0223
@@ -107,14 +107,14 @@ class SingleTurnDialog(BasicLanguageGeneration):
 
 		It contains:
 
-		* :class:`.metric.PerlplexityMetric`
+		* :class:`.metric.PerplexityMetric`
 
 		Arguments:
-			gen_prob_key (str): default: `gen_prob`. Refer to :class:`.metric.PerlplexityMetric`
+			gen_prob_key (str): default: `gen_prob`. Refer to :class:`.metric.PerplexityMetric`
 		'''
 		metric = MetricChain()
 		metric.add_metric(HashValueRecorder(hash_key="teacher_forcing_hashvalue"))
-		metric.add_metric(PerlplexityMetric(self, gen_log_prob_key=gen_log_prob_key))
+		metric.add_metric(PerplexityMetric(self, gen_log_prob_key=gen_log_prob_key))
 		return metric
 
 	def get_inference_metric(self, gen_key="gen"):

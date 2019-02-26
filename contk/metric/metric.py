@@ -156,7 +156,7 @@ class EmbSimilarityPrecisionRecallMetric(_PrecisionRecallMetric):
 		norm = (cos + 1) / 2
 		return norm
 
-class PerlplexityMetric(MetricBase):
+class PerplexityMetric(MetricBase):
 	'''Metric for calcualting perplexity.
 
 	Arguments:
@@ -241,11 +241,11 @@ class PerlplexityMetric(MetricBase):
 		for i, single_length in enumerate(resp_length):
 			# perform full check to assert the probability is valid
 			if self.full_check:
-				expsum = np.sum(np.exp(gen_log_prob[i][:single_length]), -1)
-				if not np.allclose(expsum, [1] * single_length):
-					raise ValueError("gen_log_prob must be processed after log_softmax.")
+				expsum = np.sum(np.exp(gen_log_prob[i][:single_length-1]), -1)
+				if not np.allclose(expsum, [1] * (single_length - 1)):
+					raise ValueError("data[gen_log_prob_key] must be processed after log_softmax.")
 
-			resp_now = resp_allvocabs[i][1:single_length]
+			resp_now = np.array(resp_allvocabs[i][1:single_length])
 			gen_log_prob_now = np.array(gen_log_prob[i])
 
 			if not self.invalid_vocab:
@@ -263,8 +263,7 @@ class PerlplexityMetric(MetricBase):
 			normal_idx = np.where(np.logical_and(resp_now != self.dataloader.unk_id, \
 									resp_now < self.dataloader.vocab_size))
 			self.word_loss += -np.sum(gen_log_prob_now[normal_idx, resp_now[normal_idx]])
-			self.length_sum += len(normal_idx)
-
+			self.length_sum += np.array(normal_idx).shape[1]
 			# calc invalid vocab
 			invalid_idx = np.where(resp_now >= self.dataloader.vocab_size)
 			invalid_log_prob = gen_log_prob_now[\
@@ -272,12 +271,12 @@ class PerlplexityMetric(MetricBase):
 								] - np.log(invalid_vocab_num)
 			if self.invalid_vocab:
 				extra_invalid_log_prob = gen_log_prob_now[invalid_idx, resp_now[invalid_idx]]
-				self.word_loss += np.sum(np.log( \
+				self.word_loss += -np.sum(np.log( \
 						np.exp(invalid_log_prob) + np.exp(extra_invalid_log_prob) \
 					))
 			else:
-				self.word_loss += np.sum(invalid_log_prob)
-			self.length_sum += len(invalid_idx)
+				self.word_loss += -np.sum(invalid_log_prob)
+			self.length_sum += np.array(invalid_idx).shape[1]
 
 	def close(self):
 		'''Return a dict which contains:
@@ -314,7 +313,7 @@ class MultiTurnPerplexityMetric(MetricBase):
 		self.reference_len_key = reference_len_key
 		self.gen_log_prob_key = gen_log_prob_key
 		self.invalid_vocab = invalid_vocab
-		self.sub_metric = PerlplexityMetric(dataloader, \
+		self.sub_metric = PerplexityMetric(dataloader, \
 				reference_allvocabs_key="sent_allvocabs", \
 				reference_len_key="sent_length", \
 				gen_log_prob_key="gen_log_prob", \
