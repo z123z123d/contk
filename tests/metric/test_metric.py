@@ -221,6 +221,7 @@ test_shape =     [     'pad',      'jag',      'pad',      'jag']
 test_type =      [   'array',    'array',     'list',     'list']
 
 test_batch_len = [   'equal',  'unequal']
+test_turn_len =  [   'equal',  'unequal']
 
 test_check =     ['no_check', 'random_check', 'full_check']
 
@@ -786,7 +787,8 @@ multi_turn_dialog_test_parameter = generate_testcase(\
 	(zip(test_shape, test_type), "multi"),
 	(zip(test_batch_len), "add"),
 	(zip(['empty', 'non-empty']), "multi"),
-	(zip(['empty', 'non-empty']), "multi")
+	(zip(['empty', 'non-empty']), "multi"),
+	(zip(test_turn_len), "add")
 )
 
 class TestMultiTurnDialogRecorder:
@@ -806,7 +808,7 @@ class TestMultiTurnDialogRecorder:
 			resp_now = []
 			for j, resp in enumerate(resp_turn):
 				t = dataloader.trim_index(resp[1:])
-				if data['turn_length'] is None:
+				if data[turn_length] is None:
 					if len(t) == 0:
 						break
 				elif j >= data[turn_length][i]:
@@ -818,7 +820,7 @@ class TestMultiTurnDialogRecorder:
 			gen_now = []
 			for j, gen in enumerate(gen_turn):
 				t = dataloader.trim_index(gen)
-				if data['turn_length'] is None:
+				if data[turn_length] is None:
 					if len(t) == 0:
 						break
 				elif j >= data[turn_length][i]:
@@ -838,8 +840,9 @@ class TestMultiTurnDialogRecorder:
 		for i, turn in enumerate(ans['gen']):
 			assert len(_ans['gen'][i]) == len(turn)
 
-	@pytest.mark.parametrize('argument, shape, type, batch_len, gen_len, ref_len', multi_turn_dialog_test_parameter)
-	def test_close(self, argument, shape, type, batch_len, gen_len, ref_len):
+	@pytest.mark.parametrize( \
+		'argument, shape, type, batch_len, gen_len, ref_len, turn_len', multi_turn_dialog_test_parameter)
+	def test_close(self, argument, shape, type, batch_len, gen_len, ref_len, turn_len):
 		# 'default' or 'custom'
 		# 'pad' or 'jag'
 		# 'list' or 'array'
@@ -865,9 +868,11 @@ class TestMultiTurnDialogRecorder:
 			with pytest.raises(ValueError, match='Batch num is not matched.'):
 				mtbr.forward(data)
 		else:
-			if gen_len != ref_len:
+			if turn_len == 'unequal':
+				data[reference_key][0] = data[reference_key][0][1:]
 				with pytest.raises(ValueError, match="Reference turn num \d* != gen turn num \d*."):
 					mtbr.forward(data)
+				return
 			else:
 				mtbr.forward(data)
 				self.check(mtbr.close(), dataloader, \
