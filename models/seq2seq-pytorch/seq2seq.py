@@ -165,7 +165,7 @@ class Seq2seq(BaseModel):
 				self.net.forward(incoming)
 				gen_prob = nn.functional.log_softmax(incoming.gen.w, -1)
 			data = incoming.data
-			data.resp = incoming.data.resp_allvocabs.detach().cpu().numpy().transpose(1, 0)
+			data.resp = incoming.data.resp_allvocabs
 			data.resp_length = incoming.data.resp_length
 			data.gen_log_prob = gen_prob.detach().cpu().numpy().transpose(1, 0, 2)
 			metric1.forward(data)
