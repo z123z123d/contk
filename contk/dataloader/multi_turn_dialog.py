@@ -503,7 +503,7 @@ class SwitchboardCorpus(MultiTurnDialog):
 		'''
 		metric = MetricChain()
 		for ngram in range(1, 5):
-			metric.add_metric(BleuPrecisionRecallMetric(ngram))
-		metric.add_metric(EmbSimilarityPrecisionRecallMetric(embed, 'avg'))
-		metric.add_metric(EmbSimilarityPrecisionRecallMetric(embed, 'extrema'))
+			metric.add_metric(BleuPrecisionRecallMetric(self, ngram))
+		metric.add_metric(EmbSimilarityPrecisionRecallMetric(self, embed, 'avg'))
+		metric.add_metric(EmbSimilarityPrecisionRecallMetric(self, embed, 'extrema'))
 		return metric
