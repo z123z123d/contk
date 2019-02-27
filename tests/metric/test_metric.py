@@ -238,7 +238,7 @@ test_ngram = [1, 2, 3, 4, 5, 6]
 
 test_emb_mode = ['avg', 'extrema', 'sum']
 test_emb_type = ['array', 'list']
-test_emb_len =  [8, 11]
+test_emb_len = ['equal', 'unequal']
 
 test_hash_data = ['has_key', 'no_key']
 
@@ -306,27 +306,28 @@ bleu_precision_recall_test_parameter = generate_testcase(\
 class TestBleuPrecisionRecallMetric():
 	def test_base_class(self):
 		with pytest.raises(NotImplementedError):
+			dataloader = FakeMultiDataloader()
 			gen = []
 			reference = []
-			bprm = BleuPrecisionRecallMetric(ngram=1)
+			bprm = BleuPrecisionRecallMetric(dataloader, ngram=1)
 			super(BleuPrecisionRecallMetric, bprm).score(gen, reference)
 
-	@pytest.mark.parametrize('argument, shape, type, batch_len, ref_len, gen_len, ngram',
+	@pytest.mark.parametrize('argument, shape, type, batch_len, ref_len, gen_len, ngram', \
 		bleu_precision_recall_test_parameter)
 	def test_close(self, argument, shape, type, batch_len, ref_len, gen_len, ngram):
 		dataloader = FakeMultiDataloader()
 
 		if ngram not in range(1, 5):
 			with pytest.raises(ValueError, match="ngram should belong to \[1, 4\]"):
-				bprm = BleuPrecisionRecallMetric(ngram)
+				bprm = BleuPrecisionRecallMetric(dataloader, ngram)
 			return
 
 		if argument == 'default':
-			reference_key, gen_key = ('resp', 'gen')
-			bprm = BleuPrecisionRecallMetric(ngram)
+			reference_key, gen_key = ('resp_allvocabs', 'gen')
+			bprm = BleuPrecisionRecallMetric(dataloader, ngram)
 		else:
 			reference_key, gen_key = ('rk', 'gk')
-			bprm = BleuPrecisionRecallMetric(ngram, reference_key, gen_key)
+			bprm = BleuPrecisionRecallMetric(dataloader, ngram, reference_key, gen_key)
 
 		data = dataloader.get_data(reference_key=reference_key, gen_key=gen_key, \
 								   to_list=(type == 'list'), pad=(shape == 'pad'), \
@@ -357,42 +358,48 @@ emb_similarity_precision_recall_test_parameter = generate_testcase( \
 	(zip(test_gen_vocab), "multi"),
 	(zip(test_emb_mode), "add"),
 	(zip(test_emb_type), "add"),
-	(zip(test_emb_len), "multi")
+	(zip(test_emb_len), "add")
 )
 
 
 class TestEmbSimilarityPrecisionRecallMetric():
-	@pytest.mark.parametrize('argument, shape, type, batch_len, ref_len, gen_len, '
-							 'ref_vocab, gen_vocab, emb_mode, emb_type, emb_len',
+	@pytest.mark.parametrize('argument, shape, type, batch_len, ref_len, gen_len, ' \
+							 'ref_vocab, gen_vocab, emb_mode, emb_type, emb_len', \
 							 emb_similarity_precision_recall_test_parameter)
 	def test_close(self, argument, shape, type, batch_len, ref_len, gen_len, \
 							 ref_vocab, gen_vocab, emb_mode, emb_type, emb_len):
 		dataloader = FakeMultiDataloader()
 
 		emb = []
-		for i in range(emb_len):
+		for i in range(dataloader.vocab_size + (1 if emb_len == 'unequal' else 0)):
 			vec = []
 			for j in range(5):
 				vec.append(random.random())
 			emb.append(vec)
-		print(emb_len, gen_vocab)
+		#print(emb_len, gen_vocab)
 		if emb_type == 'array':
 			emb = np.array(emb)
+
 		if emb_type != 'array':
-			with pytest.raises(ValueError, match="invalid type of shape of embed."):
-				espr = EmbSimilarityPrecisionRecallMetric(emb, emb_mode)
+			with pytest.raises(ValueError, match="invalid type or shape or embed."):
+				espr = EmbSimilarityPrecisionRecallMetric(dataloader, emb, emb_mode)
+			return
+		if emb_len == 'unequal':
+			with pytest.raises(ValueError, match="embed size not equal to vocab size."):
+				espr = EmbSimilarityPrecisionRecallMetric(dataloader, emb, emb_mode)
 			return
 		if emb_mode not in ['avg', 'extrema']:
 			with pytest.raises(ValueError, match="mode should be 'avg' or 'extrema'."):
-				espr = EmbSimilarityPrecisionRecallMetric(emb, emb_mode)
+				espr = EmbSimilarityPrecisionRecallMetric(dataloader, emb, emb_mode)
 			return
 
 		if argument == 'default':
-			reference_key, gen_key = ('resp', 'gen')
-			espr = EmbSimilarityPrecisionRecallMetric(emb, emb_mode)
+			reference_key, gen_key = ('resp_allvocabs', 'gen')
+			print(emb)
+			espr = EmbSimilarityPrecisionRecallMetric(dataloader, emb, emb_mode)
 		else:
 			reference_key, gen_key = ('rk', 'gk')
-			espr = EmbSimilarityPrecisionRecallMetric(emb, emb_mode, \
+			espr = EmbSimilarityPrecisionRecallMetric(dataloader, emb, emb_mode, \
 													  reference_key, gen_key)
 
 		data = dataloader.get_data(reference_key=reference_key, gen_key=gen_key, \
@@ -407,15 +414,15 @@ class TestEmbSimilarityPrecisionRecallMetric():
 			with pytest.raises(ValueError, match="Batch num is not matched."):
 				espr.forward(data)
 		else:
-			if emb_len < dataloader.all_vocab_size and \
-				(ref_vocab == 'all_vocab' or gen_vocab == 'all_vocab'):
-				with pytest.raises(ValueError, match="[a-z]* index out of range."):
-					espr.forward(data)
-			else:
-				espr.forward(data)
-				ans = espr.close()
-				prefix = emb_mode + '-bow'
-				assert sorted(ans.keys()) == [prefix + ' precision', prefix + ' recall']
+			# if emb_len < dataloader.all_vocab_size and \
+			# 	(ref_vocab == 'all_vocab' or gen_vocab == 'all_vocab'):
+			# 	with pytest.raises(ValueError, match="[a-z]* index out of range."):
+			# 		espr.forward(data)
+			# else:
+			espr.forward(data)
+			ans = espr.close()
+			prefix = emb_mode + '-bow'
+			assert sorted(ans.keys()) == [prefix + ' precision', prefix + ' recall']
 
 		assert same_dict(data, _data)
 
@@ -737,7 +744,8 @@ single_turn_dialog_recorder_test_parameter = generate_testcase(\
 )
 
 class TestSingleTurnDialogRecorder():
-	def get_sen_from_index(self, dataloader, data, post_key='post_allvocabs', reference_key='resp_allvocabs', gen_key='gen'):
+	def get_sen_from_index(self, dataloader, data, post_key='post_allvocabs', \
+			reference_key='resp_allvocabs', gen_key='gen'):
 		ans = { \
 			'post': [], \
 			'resp': [], \
