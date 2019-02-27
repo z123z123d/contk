@@ -348,7 +348,7 @@ class MultiTurnPerplexityMetric(MetricBase):
 				Length of outer list: `batch_size`
 			data[gen_log_prob_key] (list or :class:`numpy.array`): Setence generations model outputs of
 				**log softmax** probability. Contains end token (eg:``<eos>``), but without start token
-				(eg: ``<go>``).	The 2nd / 3rd dimension can be jagged.
+				(eg: ``<go>``).	The 2nd / 3rd dimension can be jagged or padded.
 				Size: `[batch_size, max_turn_length, gen_sentence_length, vocab_size]`.
 
 		Warning:
@@ -364,7 +364,9 @@ class MultiTurnPerplexityMetric(MetricBase):
 		for i, sent_length in enumerate(length):
 			# Pass turn as batch for sub_metric, the result will be same.
 			turn_length = len(sent_length)
-			self.sub_metric.forward({"sent_allvocabs": reference_allvocabs[i], \
+			if len(reference_allvocabs[i]) < turn_length or len(gen_log_prob[i]) < turn_length:
+				raise ValueError("Turn num is not matched.")
+			self.sub_metric.forward({"sent_allvocabs": reference_allvocabs[i][:turn_length], \
 					"sent_length": sent_length, \
 					"gen_log_prob": gen_log_prob[i][:turn_length]})
 
@@ -608,7 +610,7 @@ class MultiTurnDialogRecorder(MetricBase):
 		reference_allvocabs = data[self.reference_allvocabs_key]
 		gen = data[self.gen_key]
 		turn_length = data[self.turn_len_key]
-		if len(context_allvocabs) != len(reference_allvocabs) or len(context_allvocabs) != len(gen):
+		if len(gen) != len(reference_allvocabs):
 			raise ValueError("Batch num is not matched.")
 		for i, context_sen in enumerate(context_allvocabs):
 			self.context_list.append(self.dataloader.multi_turn_index_to_sen( \
